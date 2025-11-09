@@ -2,7 +2,7 @@
 
 A complete end-to-end solution for providing AI-powered assistance to call center agents during live customer calls, built on Databricks Zerobus, Delta Live Tables, and GenAI Agent Framework.
 
-## 🎯 Overview
+## Overview
 
 This system provides real-time AI assistance to Australian Retirement Trust (ART) call center agents by:
 - **Streaming call transcripts** in real-time via Zerobus
@@ -10,7 +10,7 @@ This system provides real-time AI assistance to Australian Retirement Trust (ART
 - **Providing AI suggestions** through a GenAI agent with access to knowledge base and member history
 - **Alerting on compliance issues** in real-time as they occur
 
-## 📊 Architecture
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -64,7 +64,7 @@ Databricks Claude Sonnet 4.5 (LLM)
     └─ Uses UC Functions as tools
 ```
 
-## 🏗️ Databricks Components
+## Databricks Components
 
 ### 1. **Zerobus Ingestion** (Bronze Layer)
 - **Table**: `member_analytics.call_center.zerobus_transcripts`
@@ -76,17 +76,96 @@ Databricks Claude Sonnet 4.5 (LLM)
 - **Pipeline Name**: `art-callcenter-enrichment-serverless`
 - **Notebook**: `/Workspace/Users/pravin.varma@databricks.com/art-callcenter/dlt_enrichment_pipeline`
 - **Output Table**: `member_analytics.call_center.enriched_transcripts`
-- **Enrichments**:
-  - **Sentiment Analysis**: Classifies each utterance as `positive`, `negative`, or `neutral`
-  - **Intent Detection**: Categorizes intent (`general_inquiry`, `contribution`, `withdrawal`, `account_balance`, etc.)
-  - **Compliance Detection**: Flags potential violations:
-    - `financial_advice` - Agent providing investment advice
-    - `guarantee` - Guaranteeing returns or performance
-    - `pressure` - Pressuring member to make decisions
-    - `misinformation` - Providing incorrect information
-    - `ok` - No compliance issues
-  - **Compliance Severity**: `LOW`, `MEDIUM`, `HIGH`, `CRITICAL`
-- **Update Frequency**: Continuous (processes new transcripts as they arrive)
+- **Update Frequency**: Continuous (processes new transcripts as they arrive via streaming)
+
+#### Processing Logic
+
+The DLT pipeline reads from the Bronze layer (`zerobus_transcripts`) and applies real-time enrichment using Spark SQL transformations. Each transcript segment is analyzed independently as it arrives.
+
+##### Sentiment Detection
+
+Sentiment is detected using pattern matching on the transcript text:
+
+- **Positive Sentiment**: Detected when transcript contains keywords like `thank`, `appreciate`, `great`, `perfect`
+  - Example: "Thank you so much for your help" → `sentiment = 'positive'`
+  
+- **Negative Sentiment**: Detected when transcript contains keywords like `frustrated`, `angry`, `disappointed`, `terrible`
+  - Example: "I'm frustrated with this process" → `sentiment = 'negative'`
+  
+- **Neutral Sentiment**: Default classification when no positive or negative keywords are found
+  - Example: "What is my account balance?" → `sentiment = 'neutral'`
+
+The detection uses case-insensitive regex pattern matching: `lower(transcript_segment).rlike("pattern")`
+
+##### Intent Detection
+
+Intent is categorized using keyword-based pattern matching to identify the primary topic of the conversation:
+
+- **contribution_inquiry**: Keywords like `contribution`, `cap`
+  - Example: "What are the contribution limits?" → `intent_category = 'contribution_inquiry'`
+  
+- **withdrawal_inquiry**: Keywords like `withdraw`, `access`, `medical`
+  - Example: "How do I access my funds?" → `intent_category = 'withdrawal_inquiry'`
+  
+- **insurance_inquiry**: Keywords like `insurance`, `cover`
+  - Example: "What insurance coverage do I have?" → `intent_category = 'insurance_inquiry'`
+  
+- **performance_inquiry**: Keywords like `performance`, `return`
+  - Example: "How has my fund performed?" → `intent_category = 'performance_inquiry'`
+  
+- **beneficiary_update**: Keywords like `beneficiary`
+  - Example: "I need to update my beneficiary" → `intent_category = 'beneficiary_update'`
+  
+- **complaint**: Keywords like `complaint`, `frustrated`
+  - Example: "I want to file a complaint" → `intent_category = 'complaint'`
+  
+- **general_inquiry**: Default category when no specific intent keywords are matched
+  - Example: "Hello, how can I help?" → `intent_category = 'general_inquiry'`
+
+The detection checks for keyword patterns in order, and the first match determines the intent category.
+
+##### Compliance Detection
+
+Compliance violations are detected using a combination of keyword patterns and speaker identification (agent vs. customer):
+
+- **guarantee_language**: Detected when transcript contains `guarantee`, `promise`, or combinations like `definitely` + `return`/`grow`
+  - Example: "I guarantee you'll get great returns" → `compliance_flag = 'guarantee_language'`
+  - Severity: `CRITICAL`
+  
+- **personal_advice**: Detected when speaker is `agent` AND transcript contains `should`, `recommend`, or `best option`
+  - Example: Agent says "You should invest in this fund" → `compliance_flag = 'personal_advice'`
+  - Severity: `HIGH`
+  
+- **privacy_breach**: Detected when speaker is `agent` AND transcript mentions `balance` but NOT `your` (indicating potential disclosure of another member's information)
+  - Example: Agent says "The balance is $50,000" (without "your") → `compliance_flag = 'privacy_breach'`
+  - Severity: `HIGH`
+  
+- **ok**: Default when no compliance violations are detected
+  - Example: "Thank you for calling" → `compliance_flag = 'ok'`
+  - Severity: `LOW`
+
+The compliance detection logic uses conditional checks:
+- First checks for guarantee language (highest priority)
+- Then checks for personal advice (only for agent utterances)
+- Then checks for privacy breaches (only for agent utterances)
+- Defaults to `ok` if no violations detected
+
+##### Severity Assignment
+
+Compliance severity is assigned based on the violation type:
+- **CRITICAL**: Guarantee language detected
+- **HIGH**: Personal advice or privacy breach detected
+- **LOW**: Default for all other cases (including `ok`)
+
+##### Processing Flow
+
+1. **Stream Ingestion**: DLT reads new records from `zerobus_transcripts` table using `spark.readStream.table()`
+2. **Transformation**: Each record is enriched with sentiment, intent, and compliance flags using Spark SQL `withColumn()` transformations
+3. **Quality Checks**: Data quality expectations ensure valid timestamps and speaker values (`expect_or_drop`)
+4. **Write to Silver**: Enriched records are written to `enriched_transcripts` table with auto-optimization enabled
+5. **Real-time Availability**: New enriched records are immediately available for querying via UC Functions and the Streamlit dashboard
+
+The pipeline processes records incrementally as they arrive, ensuring low latency (typically <5 seconds from ingestion to availability).
 
 ### 3. **Unity Catalog Functions** (Agent Tools)
 Located in `member_analytics.call_center` schema:
@@ -129,7 +208,7 @@ Located in `member_analytics.call_center` schema:
   - Real-time compliance alerts
   - Call metrics (sentiment distribution, top intents)
 
-## 🔄 Typical Agent Scenario
+## Typical Agent Scenario
 
 ### Scenario: Member calls asking about contribution limits
 
@@ -176,7 +255,7 @@ Located in `member_analytics.call_center` schema:
    - AI suggestions available on-demand
    - Member info updates as more context is gathered
 
-## ⚠️ Compliance Alerts (Right Column)
+## Compliance Alerts (Right Column)
 
 ### What Are Compliance Alerts?
 
@@ -225,7 +304,7 @@ The DLT pipeline uses pattern matching and keyword detection:
 - **Pressure**: Phrases like "act now", "limited time", "don't miss out"
 - **Misinformation**: Contradicts known policies or provides incorrect information
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -295,7 +374,7 @@ python scripts/03_zerobus_ingestion.py
 # Or: python scripts/03_zerobus_ingestion_sql.py
 ```
 
-## 📁 Project Structure
+## Project Structure
 
 ```
 art-callcenter/
@@ -324,7 +403,7 @@ art-callcenter/
 └── README.md                  # This file
 ```
 
-## 🔧 Configuration
+## Configuration
 
 All configuration is centralized in `config/config.py`:
 
@@ -335,7 +414,7 @@ All configuration is centralized in `config/config.py`:
 - **Tables**: `zerobus_transcripts`, `enriched_transcripts`
 - **UC Functions**: All 4 function names
 
-## 📊 Performance Optimizations
+## Performance Optimizations
 
 The system has been optimized for speed:
 
@@ -351,7 +430,7 @@ The system has been optimized for speed:
 - Compliance alert update: <5s (DLT processing)
 - Transcript update: Real-time (as data arrives)
 
-## 🧪 Testing
+## Testing
 
 See `TESTING_GUIDE.md` for comprehensive testing checklist.
 
@@ -363,7 +442,7 @@ Quick test:
 5. Click "Get AI Suggestion"
 6. Observe compliance alerts (if any violations in mock data)
 
-## 📚 Documentation
+## Documentation
 
 - **Quick Start**: `QUICK_START.md`
 - **Pipeline Architecture**: `PIPELINE_ARCHITECTURE.md`
@@ -371,7 +450,7 @@ Quick test:
 - **Troubleshooting**: `TROUBLESHOOTING_GUIDE.md`
 - **Testing Guide**: `TESTING_GUIDE.md`
 
-## 🔐 Security & Compliance
+## Security & Compliance
 
 - **Authentication**: Uses Databricks CLI credentials (`~/.databrickscfg`)
 - **Secrets**: Stored in Databricks Secrets Scope
@@ -379,14 +458,14 @@ Quick test:
 - **Compliance Detection**: Real-time flagging of potential violations
 - **Audit Trail**: All transcript data stored in Delta tables for audit
 
-## 🚧 Known Limitations
+## Known Limitations
 
 1. **Mock Data Only**: Currently uses generated mock data (not connected to real Genesys Cloud)
 2. **KB Stub**: Knowledge base search returns sample data (requires `knowledge_base.kb_articles` table)
 3. **Member History Stub**: Member history returns sample data (requires `member_data.interaction_history` table)
 4. **Streamlit Single-Threaded**: UI may briefly freeze during AI processing (mitigated with placeholders)
 
-## 🎯 Future Enhancements
+## Future Enhancements
 
 - [ ] Connect to real Genesys Cloud API
 - [ ] Populate knowledge base with real ART policies
@@ -395,14 +474,14 @@ Quick test:
 - [ ] Implement agent performance analytics
 - [ ] Add supervisor dashboard for call monitoring
 
-## 📝 License
+## License
 
 MIT
 
-## 👥 Contributors
+## Contributors
 
 - Pravin Varma (@pravinva)
 
-## 📞 Support
+## Support
 
 For issues or questions, please open an issue on GitHub or contact the development team.
