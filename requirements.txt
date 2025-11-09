@@ -1,0 +1,24 @@
+# Core Databricks SDK
+databricks-sdk>=0.40.0
+databricks-zerobus-sdk>=0.1.0
+databricks-sql-connector>=3.0.0
+
+# GenAI and ML
+mlflow>=2.10.0
+databricks-agents>=0.1.0
+
+# Data processing
+pandas>=2.0.0
+faker>=20.0.0
+
+# Web framework
+streamlit>=1.28.0
+
+# Async support
+asyncio
+aiohttp>=3.9.0
+
+# Utilities
+python-dotenv>=1.0.0
+pyyaml>=6.0
+
