@@ -45,9 +45,9 @@ CLIENT_SECRET_KEY = "service-principal-secret"
 # ============================================================================
 # LLM Configuration
 # ============================================================================
-# Databricks Sonnet 4-5 endpoint
-LLM_ENDPOINT_NAME = "databricks-sonnet-4-5"
-LLM_MODEL_NAME = "databricks-sonnet-4-5"
+# Databricks Claude Sonnet 4-5 endpoint
+LLM_ENDPOINT_NAME = "databricks-claude-sonnet-4-5"
+LLM_MODEL_NAME = "databricks-claude-sonnet-4-5"
 
 # ============================================================================
 # Agent Configuration
@@ -71,10 +71,9 @@ FUNCTION_CHECK_COMPLIANCE = f"{CATALOG_NAME}.{SCHEMA_NAME}.check_compliance_real
 FUNCTION_GET_MEMBER_HISTORY = f"{CATALOG_NAME}.{SCHEMA_NAME}.get_member_history"
 
 # ============================================================================
-# Environment Variables (for local execution)
+# SQL Warehouse Configuration
 # ============================================================================
-ZEROBUS_CLIENT_ID_ENV = "ZEROBUS_CLIENT_ID"
-ZEROBUS_CLIENT_SECRET_ENV = "ZEROBUS_CLIENT_SECRET"
+SQL_WAREHOUSE_ID = "4b9b953939869799"
 
 def get_zerobus_credentials():
     """Get Zerobus credentials from environment or secrets"""

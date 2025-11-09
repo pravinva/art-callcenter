@@ -47,5 +47,6 @@ SET TBLPROPERTIES (
 );
 
 -- Grant permissions
-GRANT SELECT, INSERT ON TABLE member_analytics.call_center.zerobus_transcripts TO `account users`;
+GRANT SELECT ON TABLE member_analytics.call_center.zerobus_transcripts TO `account users`;
+-- Note: INSERT permissions are handled via table ownership in Unity Catalog
 

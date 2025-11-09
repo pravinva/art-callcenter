@@ -1,0 +1,19 @@
+{
+  "id": "4bc41e3f-072e-4e5a-80a9-dbb323f2994b",
+  "pipeline_type": "WORKSPACE",
+  "name": "art-callcenter-enrichment",
+  "storage": "dbfs:/pipelines/4bc41e3f-072e-4e5a-80a9-dbb323f2994b",
+  "catalog": "member_analytics",
+  "target": "call_center",
+  "libraries": [
+    {
+      "notebook": {
+        "path": "/Workspace/Users/pravin.varma@databricks.com/art-callcenter/dlt_enrichment_pipeline"
+      }
+    }
+  ],
+  "continuous": true,
+  "development": false,
+  "photon": true,
+  "serverless": true
+}

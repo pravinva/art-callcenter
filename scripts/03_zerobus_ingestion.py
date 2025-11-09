@@ -14,7 +14,20 @@ from datetime import datetime, timedelta
 # Add parent directory to path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from databricks_zerobus import ZerobusSdk, TableProperties
+try:
+    from zerobus.sdk.aio import ZerobusSdk
+    from zerobus.sdk import TableProperties
+    ZEROBUS_AVAILABLE = True
+except ImportError:
+    try:
+        from zerobus.sdk import ZerobusSdk, TableProperties
+        ZEROBUS_AVAILABLE = True
+    except ImportError:
+        print("⚠️  Zerobus SDK not found. Install with: pip install git+https://github.com/databricks/zerobus-sdk-py.git")
+        print("   Use SQL fallback: python scripts/03_zerobus_ingestion_sql.py")
+        ZEROBUS_AVAILABLE = False
+        ZerobusSdk = None
+        TableProperties = None
 from databricks.sdk import WorkspaceClient
 from config.config import (
     get_workspace_client, get_zerobus_endpoint, get_workspace_url,
@@ -75,8 +88,12 @@ async def ingest_call_zerobus(call_data, sdk, stream):
                 "member_life_stage": call_data["member"]["life_stage"]
             }
             
-            ack = stream.ingest_record(record)
-            await ack.wait_for_ack()
+            # Convert record to JSON string for JSON mode
+            import json
+            record_json = json.dumps(record)
+            
+            # Ingest record (async API - returns awaitable)
+            await stream.ingest_record(record_json)
             
             print(f"⚡ [{speaker:8s}] {utterance[:70]}")
             await asyncio.sleep(0.5)  # Faster for demo
@@ -96,6 +113,11 @@ async def ingest_call_zerobus(call_data, sdk, stream):
 async def simulate_call_center(num_calls=10, member_pool=None):
     """Simulate realistic call center volume"""
     
+    if not ZEROBUS_AVAILABLE:
+        print("❌ Zerobus SDK not available. Use SQL fallback:")
+        print("   python scripts/03_zerobus_ingestion_sql.py")
+        return
+    
     print(f"\n🏢 CALL CENTER SIMULATION")
     print(f"Generating {num_calls} realistic calls...")
     print(f"{'='*80}\n")
@@ -106,29 +128,31 @@ async def simulate_call_center(num_calls=10, member_pool=None):
     
     if not client_id or not client_secret:
         print("❌ Cannot proceed without Zerobus credentials")
+        print("   Set environment variables:")
+        print("   export ZEROBUS_CLIENT_ID='your-client-id'")
+        print("   export ZEROBUS_CLIENT_SECRET='your-client-secret'")
         return
     
     # Initialize Zerobus SDK
-    workspace_url = get_workspace_url()
-    zerobus_endpoint = get_zerobus_endpoint()
+    workspace_url = get_workspace_url().rstrip('/')
+    workspace_hostname = workspace_url.replace('https://', '').replace('http://', '')
+    
+    # Based on SDK docs: ZerobusSdk(server_endpoint, unity_catalog_endpoint)
+    server_endpoint = f"https://{workspace_hostname}/api/2.0/zerobus/streams"
+    unity_catalog_endpoint = f"https://{workspace_hostname}/api/2.0/unity-catalog"
     
     print(f"🔌 Connecting to Zerobus...")
     print(f"   Workspace: {workspace_url}")
-    print(f"   Endpoint: {zerobus_endpoint}")
+    print(f"   Server Endpoint: {server_endpoint}")
+    print(f"   UC Endpoint: {unity_catalog_endpoint}")
     
-    sdk = ZerobusSdk(
-        workspace_url=workspace_url.rstrip('/'),
-        zerobus_endpoint=zerobus_endpoint,
-        token=None
-    )
+    sdk = ZerobusSdk(server_endpoint, unity_catalog_endpoint)
     
-    table_props = TableProperties(
-        table_name=ZEROBUS_TABLE
-    )
+    table_props = TableProperties(table_name=ZEROBUS_TABLE)
     
     print(f"📊 Target table: {table_props.table_name}")
     
-    # Create stream
+    # Create stream using async API
     stream = await sdk.create_stream(
         client_id=client_id,
         client_secret=client_secret,
