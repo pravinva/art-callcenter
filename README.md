@@ -546,6 +546,29 @@ The system includes comprehensive batch post-call processing that runs on a sche
 - **Reporting**: Generate daily/weekly/monthly reports from Gold layer tables
 - **Historical Analysis**: Query historical data for trends and insights
 
+## Knowledge Base
+
+The system includes a comprehensive knowledge base with 20 ART-specific articles covering:
+- Contribution limits and caps
+- Withdrawal options (compassionate grounds, financial hardship)
+- Insurance coverage and claims
+- Investment options and performance
+- Account management
+- Fees and charges
+- Retirement options
+- Tax implications
+- Complaints and dispute resolution
+- And more...
+
+### Populate Knowledge Base
+
+```bash
+# Populate with comprehensive ART articles
+python scripts/populate_kb_articles.py
+```
+
+The knowledge base is searchable via the `search_knowledge_base()` UC function and integrated into the Live Agent Dashboard.
+
 ## Analytics Dashboard
 
 A comprehensive Streamlit dashboard for visualizing Gold layer analytics and insights.
@@ -580,10 +603,30 @@ The dashboard will be available at `http://localhost:8521`
 ## Future Enhancements
 
 - [ ] Connect to real Genesys Cloud API
-- [ ] Populate knowledge base with real ART policies
+- [x] Populate knowledge base with real ART policies ✅ (20 comprehensive KB articles)
 - [ ] Add multi-language support
-- [ ] Add supervisor dashboard for call monitoring
-- [ ] Add real-time dashboards for Gold layer analytics ✅ (Analytics Dashboard implemented)
+- [x] Add supervisor dashboard for call monitoring ✅ (Supervisor Dashboard implemented)
+- [x] Add real-time dashboards for Gold layer analytics ✅ (Analytics Dashboard implemented)
+
+## Demo Guide
+
+For a complete demonstration of the system, see the [Demo Flow Guide](docs/DEMO_FLOW.md) which includes:
+- End-to-end data flow from ingestion to dashboards
+- Step-by-step walkthrough of all 3 dashboards
+- SQL queries and scripts for each phase
+- Troubleshooting tips
+
+Quick reference: [Demo Quick Reference](docs/DEMO_QUICK_REFERENCE.md)
+
+### Demo Flow Summary
+
+1. **Data Ingestion** (2 min) - Show Zerobus/SQL ingestion into Bronze layer
+2. **Silver Processing** (2 min) - Show DLT pipeline enrichment
+3. **Live Agent Dashboard** (5 min) - Real-time AI assistance
+4. **Supervisor Dashboard** (4 min) - Escalation monitoring
+5. **Analytics Dashboard** (3 min) - Historical analytics
+
+Total demo duration: 15-20 minutes
 
 ## License
 
