@@ -59,7 +59,10 @@ def get_recent_call_summaries(limit: int = 20) -> pd.DataFrame:
     ORDER BY summary_created_at DESC
     LIMIT {limit}
     """
-    return execute_sql(query, SQL_WAREHOUSE_ID, return_dataframe=True) or pd.DataFrame()
+    results = execute_sql(query, SQL_WAREHOUSE_ID, return_dataframe=True)
+    if results is None or results.empty:
+        return pd.DataFrame()
+    return results
 
 def get_agent_performance(limit: int = 20) -> pd.DataFrame:
     """Get agent performance metrics"""
@@ -77,7 +80,10 @@ def get_agent_performance(limit: int = 20) -> pd.DataFrame:
     ORDER BY performance_score DESC
     LIMIT {limit}
     """
-    return execute_sql(query, SQL_WAREHOUSE_ID, return_dataframe=True) or pd.DataFrame()
+    results = execute_sql(query, SQL_WAREHOUSE_ID, return_dataframe=True)
+    if results is None or results.empty:
+        return pd.DataFrame()
+    return results
 
 def get_agent_by_id(agent_id: str) -> pd.DataFrame:
     """Get performance data for a specific agent"""
@@ -94,7 +100,10 @@ def get_agent_by_id(agent_id: str) -> pd.DataFrame:
     WHERE agent_id = '{agent_id}'
     ORDER BY call_date DESC
     """
-    return execute_sql(query, SQL_WAREHOUSE_ID, return_dataframe=True) or pd.DataFrame()
+    results = execute_sql(query, SQL_WAREHOUSE_ID, return_dataframe=True)
+    if results is None or results.empty:
+        return pd.DataFrame()
+    return results
 
 def get_call_summaries_filtered(
     sentiment_filter: str = "All",
@@ -130,7 +139,10 @@ def get_call_summaries_filtered(
     ORDER BY summary_created_at DESC
     LIMIT {limit}
     """
-    return execute_sql(query, SQL_WAREHOUSE_ID, return_dataframe=True) or pd.DataFrame()
+    results = execute_sql(query, SQL_WAREHOUSE_ID, return_dataframe=True)
+    if results is None or results.empty:
+        return pd.DataFrame()
+    return results
 
 def get_daily_statistics(days: int = 30) -> pd.DataFrame:
     """Get daily call statistics"""
@@ -147,5 +159,8 @@ def get_daily_statistics(days: int = 30) -> pd.DataFrame:
     WHERE call_date >= CURRENT_DATE() - INTERVAL {days} DAYS
     ORDER BY call_date DESC
     """
-    return execute_sql(query, SQL_WAREHOUSE_ID, return_dataframe=True) or pd.DataFrame()
+    results = execute_sql(query, SQL_WAREHOUSE_ID, return_dataframe=True)
+    if results is None or results.empty:
+        return pd.DataFrame()
+    return results
 

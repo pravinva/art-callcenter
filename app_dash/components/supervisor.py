@@ -47,10 +47,10 @@ def create_escalation_card(call_id: str, escalation_data: dict) -> dbc.Card:
                 className="mt-2"
             )
         ])
-    ], className="mb-3", style={"borderLeft": f"4px solid {border_color}"})
+    ], className="mb-2", style={"borderLeft": f"4px solid {border_color}", "height": "100%"})
 
 def create_active_calls_list(df: pd.DataFrame, escalation_dict: dict) -> html.Div:
-    """Create list of active calls with escalation info"""
+    """Create list of active calls with escalation info arranged horizontally"""
     if df is None or df.empty:
         return dbc.Alert("No active calls", color="info")
     
@@ -67,42 +67,54 @@ def create_active_calls_list(df: pd.DataFrame, escalation_dict: dict) -> html.Di
         
         cards.append(create_escalation_card(call_id, escalation_data))
     
-    return html.Div(cards)
+    # Arrange cards horizontally in rows (responsive: 3 on large, 2 on medium, 1 on small)
+    rows = []
+    for i in range(0, len(cards), 3):
+        row_cards = cards[i:i + 3]
+        cols = []
+        for card in row_cards:
+            # Responsive columns: 4 cols on large (3 per row), 6 cols on medium (2 per row), 12 cols on small (1 per row)
+            cols.append(dbc.Col(card, width=4, md=6, xs=12, className="mb-3"))
+        
+        rows.append(dbc.Row(cols, className="mb-2"))
+    
+    return html.Div(rows)
 
 def create_escalation_summary(summary: dict) -> html.Div:
-    """Create escalation summary metrics"""
-    return dbc.Row([
-        dbc.Col([
-            dbc.Card([
-                dbc.CardBody([
-                    html.H6("Active Calls", className="text-muted"),
-                    html.H3(summary.get('total_active_calls', 0), style={"color": ART_PRIMARY_BLUE})
-                ])
-            ])
-        ], width=3),
-        dbc.Col([
-            dbc.Card([
-                dbc.CardBody([
-                    html.H6("Negative Sentiments", className="text-muted"),
-                    html.H3(summary.get('total_negative_sentiments', 0), style={"color": ART_WARNING_ORANGE})
-                ])
-            ])
-        ], width=3),
-        dbc.Col([
-            dbc.Card([
-                dbc.CardBody([
-                    html.H6("Compliance Issues", className="text-muted"),
-                    html.H3(summary.get('total_compliance_issues', 0), style={"color": ART_ERROR_RED})
-                ])
-            ])
-        ], width=3),
-        dbc.Col([
-            dbc.Card([
-                dbc.CardBody([
-                    html.H6("Complaints", className="text-muted"),
-                    html.H3(summary.get('total_complaints', 0), style={"color": ART_ERROR_RED})
-                ])
-            ])
-        ], width=3)
-    ], className="mb-4")
+    """Create escalation summary metrics (legacy - kept for compatibility)"""
+    return create_escalation_summary_tabs(summary)
+
+def create_escalation_summary_tabs(summary: dict) -> html.Div:
+    """Create escalation summary as clickable tabs"""
+    total_calls = summary.get('total_active_calls', 0)
+    negative_sentiments = summary.get('total_negative_sentiments', 0)
+    compliance_issues = summary.get('total_compliance_issues', 0)
+    complaints = summary.get('total_complaints', 0)
+    
+    return dbc.Tabs([
+        dbc.Tab(
+            label=f"📞 All Calls ({total_calls})",
+            tab_id="all-calls",
+            tab_style={"marginRight": "0.5rem"},
+            active_tab_style={"fontWeight": "bold"}
+        ),
+        dbc.Tab(
+            label=f"😟 Negative Sentiment ({negative_sentiments})",
+            tab_id="negative-sentiment",
+            tab_style={"marginRight": "0.5rem"},
+            active_tab_style={"fontWeight": "bold", "color": ART_WARNING_ORANGE}
+        ),
+        dbc.Tab(
+            label=f"⚠️ Compliance Issues ({compliance_issues})",
+            tab_id="compliance-issues",
+            tab_style={"marginRight": "0.5rem"},
+            active_tab_style={"fontWeight": "bold", "color": ART_ERROR_RED}
+        ),
+        dbc.Tab(
+            label=f"📢 Complaints ({complaints})",
+            tab_id="complaints",
+            tab_style={"marginRight": "0.5rem"},
+            active_tab_style={"fontWeight": "bold", "color": ART_ERROR_RED}
+        )
+    ], id="supervisor-tabs", active_tab="all-calls", className="mb-4")
 

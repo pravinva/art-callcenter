@@ -88,7 +88,7 @@ def TranscriptContainer(transcript_df: pd.DataFrame) -> html.Div:
         # Header matching Streamlit style
         html.Div([
             html.Div([
-                html.Span("📞", style={"fontSize": "1.5rem", "marginRight": "0.5rem"}),
+                html.Span("🔴", style={"fontSize": "1.2rem", "marginRight": "0.5rem"}),
                 html.Span("Live Call", style={"fontSize": "1.25rem", "fontWeight": "600", "marginRight": "0.5rem"}),
                 html.Span("●", style={"color": "#00A651", "fontSize": "0.8rem", "marginRight": "0.5rem"}),
                 html.Small("Live", style={"color": "#00A651", "fontWeight": "500"})

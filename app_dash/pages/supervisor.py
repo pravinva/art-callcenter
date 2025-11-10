@@ -14,58 +14,57 @@ from app_dash.utils.supervisor_data import (
     get_all_active_calls, get_calls_with_escalations_batch, get_escalation_summary
 )
 from app_dash.components.supervisor import (
-    create_active_calls_list, create_escalation_summary
+    create_active_calls_list, create_escalation_summary, create_escalation_summary_tabs
 )
 from app_dash.components.common import ErrorAlert
 
 def create_supervisor_layout():
     """Create supervisor dashboard layout"""
-    return html.Div([
+    return dbc.Container([
         html.H1("👔 Supervisor Dashboard", className="mb-4"),
         html.P("Real-time call monitoring and escalation management", className="text-muted mb-4"),
         html.Hr(),
         
-        # Summary metrics
+        # Summary metrics tabs (will be populated with data)
         html.Div(id="supervisor-summary"),
         
-        # Active calls list
-        html.H3("Active Calls", className="mt-4 mb-3"),
-        html.Div(id="supervisor-active-calls"),
+        # Tab content area
+        html.Div(id="supervisor-tab-content", className="mt-4"),
         
         # Stores
         dcc.Store(id="store-supervisor-calls"),
         dcc.Store(id="store-supervisor-escalations"),
+        dcc.Store(id="store-supervisor-summary-data"),
         
         # Interval for auto-refresh (30 seconds)
         dcc.Interval(id="supervisor-interval", interval=30000, n_intervals=0)
-    ])
+    ], fluid=True, style={"padding": "2rem"})
 
 def register_supervisor_callbacks(app):
     """Register supervisor dashboard callbacks"""
     
     @app.callback(
         Output('supervisor-summary', 'children'),
-        Output('supervisor-active-calls', 'children'),
         Output('store-supervisor-calls', 'data'),
         Output('store-supervisor-escalations', 'data'),
-        Input('supervisor-interval', 'n_intervals'),
-        prevent_initial_call=True
+        Output('store-supervisor-summary-data', 'data'),
+        Input('supervisor-interval', 'n_intervals')
     )
     def update_supervisor_dashboard(n_intervals):
-        """Update supervisor dashboard"""
+        """Update supervisor dashboard summary tabs"""
         try:
             # Get active calls
             active_calls_df = get_all_active_calls()
             
             if active_calls_df is None or active_calls_df.empty:
-                summary = create_escalation_summary({
+                summary_data = {
                     'total_active_calls': 0,
                     'total_negative_sentiments': 0,
                     'total_compliance_issues': 0,
                     'total_complaints': 0
-                })
-                calls_display = dbc.Alert("No active calls", color="info")
-                return summary, calls_display, [], {}
+                }
+                summary = create_escalation_summary_tabs(summary_data)
+                return summary, [], {}, summary_data
             
             # Get escalation data for all calls
             call_ids = active_calls_df['call_id'].tolist()
@@ -73,15 +72,90 @@ def register_supervisor_callbacks(app):
             
             # Get summary
             summary_data = get_escalation_summary()
-            summary = create_escalation_summary(summary_data)
-            
-            # Create calls list
-            calls_display = create_active_calls_list(active_calls_df, escalation_dict)
+            summary = create_escalation_summary_tabs(summary_data)
             
             # Store data
             calls_data = active_calls_df.to_dict('records') if not active_calls_df.empty else []
             
-            return summary, calls_display, calls_data, escalation_dict
+            return summary, calls_data, escalation_dict, summary_data
         except Exception as e:
-            return ErrorAlert(f"Error loading supervisor dashboard: {e}"), html.Div(), [], {}
+            import traceback
+            error_msg = f"Error loading supervisor dashboard: {str(e)}\n{traceback.format_exc()}"
+            print(error_msg)
+            return ErrorAlert(error_msg), [], {}, {}
+    
+    @app.callback(
+        Output('supervisor-tab-content', 'children'),
+        Input('supervisor-tabs', 'active_tab'),
+        State('store-supervisor-calls', 'data'),
+        State('store-supervisor-escalations', 'data'),
+        State('store-supervisor-summary-data', 'data')
+    )
+    def update_supervisor_tab_content(active_tab, calls_data, escalation_dict, summary_data):
+        """Update content based on selected tab"""
+        if not calls_data or not escalation_dict:
+            return dbc.Alert("No data available", color="info")
+        
+        import pandas as pd
+        active_calls_df = pd.DataFrame(calls_data)
+        
+        if active_tab == 'all-calls':
+            # Show all active calls
+            return html.Div([
+                html.H4("All Active Calls", className="mb-3"),
+                create_active_calls_list(active_calls_df, escalation_dict)
+            ])
+        elif active_tab == 'negative-sentiment':
+            # Filter calls with negative sentiment
+            filtered_calls = []
+            for call_id in escalation_dict:
+                if escalation_dict[call_id].get('negative_sentiment_count', 0) > 0:
+                    call_row = active_calls_df[active_calls_df['call_id'] == call_id]
+                    if not call_row.empty:
+                        filtered_calls.append(call_row.iloc[0])
+            
+            if filtered_calls:
+                filtered_df = pd.DataFrame(filtered_calls)
+                return html.Div([
+                    html.H4(f"Calls with Negative Sentiment ({len(filtered_calls)})", className="mb-3"),
+                    create_active_calls_list(filtered_df, escalation_dict)
+                ])
+            else:
+                return dbc.Alert("No calls with negative sentiment", color="info")
+        elif active_tab == 'compliance-issues':
+            # Filter calls with compliance issues
+            filtered_calls = []
+            for call_id in escalation_dict:
+                if escalation_dict[call_id].get('compliance_violations_count', 0) > 0:
+                    call_row = active_calls_df[active_calls_df['call_id'] == call_id]
+                    if not call_row.empty:
+                        filtered_calls.append(call_row.iloc[0])
+            
+            if filtered_calls:
+                filtered_df = pd.DataFrame(filtered_calls)
+                return html.Div([
+                    html.H4(f"Calls with Compliance Issues ({len(filtered_calls)})", className="mb-3"),
+                    create_active_calls_list(filtered_df, escalation_dict)
+                ])
+            else:
+                return dbc.Alert("No calls with compliance issues", color="info")
+        elif active_tab == 'complaints':
+            # Filter calls with complaints
+            filtered_calls = []
+            for call_id in escalation_dict:
+                if escalation_dict[call_id].get('complaint_intent_count', 0) > 0:
+                    call_row = active_calls_df[active_calls_df['call_id'] == call_id]
+                    if not call_row.empty:
+                        filtered_calls.append(call_row.iloc[0])
+            
+            if filtered_calls:
+                filtered_df = pd.DataFrame(filtered_calls)
+                return html.Div([
+                    html.H4(f"Calls with Complaints ({len(filtered_calls)})", className="mb-3"),
+                    create_active_calls_list(filtered_df, escalation_dict)
+                ])
+            else:
+                return dbc.Alert("No calls with complaints", color="info")
+        
+        return html.Div()
 

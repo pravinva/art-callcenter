@@ -219,16 +219,25 @@ Located in `member_analytics.call_center` schema:
 - **Purpose**: Provides real-time suggestions to agents during calls
 - **Response Time**: Optimized to <10 seconds (with caching)
 
-### 5. **Streamlit Dashboard**
-- **Location**: `app/agent_dashboard.py`
-- **Port**: 8520
+### 5. **Dash Dashboard** (Primary UI)
+- **Location**: `app_dash/app.py`
+- **Port**: 8050
 - **Features**:
   - Live transcript display with sentiment indicators
-  - AI-generated suggestions
-  - Member 360 view
-  - Knowledge base search
+  - AI-generated suggestions with response time display
+  - Member 360 view (Member Info tab)
+  - Knowledge base search with suggested questions
   - Real-time compliance alerts
-  - Call metrics (sentiment distribution, top intents)
+  - Call selection dropdown (shows calls from last 24 hours)
+  - Optimized refresh logic (only updates when data changes)
+  - Supervisor dashboard (port 8050/supervisor)
+  - Analytics dashboard (port 8050/analytics)
+- **Performance**: Optimized callbacks prevent unnecessary refreshes
+
+### 6. **Streamlit Dashboard** (Legacy/Alternative)
+- **Location**: `app/agent_dashboard.py`
+- **Port**: 8520
+- **Features**: Same as Dash dashboard (alternative implementation)
 
 ## Typical Agent Scenario
 
@@ -379,7 +388,15 @@ python scripts/05_deploy_dlt_pipeline.py
 python scripts/06_create_uc_functions.py
 ```
 
-6. **Run Streamlit Dashboard**:
+6. **Run Dash Dashboard** (Recommended):
+```bash
+cd app_dash
+source ../venv/bin/activate
+python app.py
+# Dashboard available at http://localhost:8050
+```
+
+**Or Run Streamlit Dashboard** (Alternative):
 ```bash
 ./run_dashboard.sh
 # Or: streamlit run app/agent_dashboard.py --server.port 8520
@@ -401,8 +418,33 @@ python scripts/03_zerobus_ingestion.py
 ```
 art-callcenter/
 ├── app/
-│   ├── agent_dashboard.py      # Main Streamlit dashboard
+│   ├── agent_dashboard.py      # Streamlit dashboard (legacy)
+│   ├── analytics_dashboard.py   # Streamlit analytics dashboard
+│   ├── supervisor_dashboard.py # Streamlit supervisor dashboard
 │   └── README.md                # Dashboard documentation
+├── app_dash/
+│   ├── app.py                   # Main Dash application
+│   ├── components/              # Reusable Dash components
+│   │   ├── common.py
+│   │   ├── transcript.py
+│   │   ├── ai_suggestions.py
+│   │   ├── member_info.py
+│   │   ├── kb_search.py
+│   │   ├── compliance.py
+│   │   ├── analytics.py
+│   │   └── supervisor.py
+│   ├── pages/                   # Page modules
+│   │   ├── analytics.py
+│   │   └── supervisor.py
+│   ├── utils/                   # Utility functions
+│   │   ├── state_manager.py
+│   │   ├── data_fetchers.py
+│   │   ├── databricks_client.py
+│   │   ├── ai_suggestions.py
+│   │   ├── kb_search.py
+│   │   ├── analytics_data.py
+│   │   └── supervisor_data.py
+│   └── assets/                  # Static assets (logo, etc.)
 ├── config/
 │   └── config.py                # Centralized configuration
 ├── notebooks/
@@ -420,6 +462,9 @@ art-callcenter/
 │   ├── 02_dlt_enrichment.sql   # DLT pipeline SQL (legacy)
 │   ├── 03_uc_functions.sql     # UC Functions definitions
 │   └── 03_create_dependencies.sql  # Dependency tables
+├── docs/                        # Documentation
+│   ├── DEMO_FLOW.md            # Demo flow guide
+│   └── DEMO_QUICK_REFERENCE.md # Quick reference
 ├── requirements.txt            # Python dependencies
 ├── run_dashboard.sh           # Dashboard launcher
 └── README.md                  # This file
@@ -438,19 +483,38 @@ All configuration is centralized in `config/config.py`:
 
 ## Performance Optimizations
 
-The system has been optimized for speed:
+The system has been optimized for speed and efficiency:
 
+### Data Fetching
 - **SQL Timeouts**: Reduced from 30s to 10s
 - **Polling Frequency**: Increased from 0.5s to 0.2s
 - **Response Caching**: 30-second cache for AI suggestions
 - **LLM Settings**: `max_tokens=500`, `timeout=15s`
 - **Agent Prompt**: Optimized to use only necessary tools
 
+### Dashboard Optimizations
+- **Smart Refresh Logic**: Callbacks only update when data actually changes
+  - Transcript refreshes only when call changes or new data arrives
+  - Active calls dropdown updates only when call list changes
+  - Compliance alerts update only when call changes or transcript updates
+- **PreventUpdate Pattern**: Uses Dash `PreventUpdate` to avoid unnecessary renders
+- **Data Comparison**: Compares current vs previous data before refreshing
+
+### Knowledge Base
+- **Vector Search**: Uses Databricks Vector Search for semantic similarity
+- **Performance**: ~2 seconds per search (vector search overhead)
+- **Fallback**: SQL keyword search if vector search unavailable
+- **Suggested Questions**: Always returns 5 context-aware questions
+  - Detects negative sentiment and shows complaint/dispute questions
+  - Falls back to default questions if no context found
+
 **Typical Response Times**:
 - Cached AI suggestion: <0.1s
 - Fresh AI suggestion: 5-10s
+- KB Vector Search: ~2s
+- KB SQL Fallback: <1s
 - Compliance alert update: <5s (DLT processing)
-- Transcript update: Real-time (as data arrives)
+- Transcript update: Real-time (as data arrives, no unnecessary refreshes)
 
 ## Testing
 
@@ -567,34 +631,81 @@ The system includes a comprehensive knowledge base with 20 ART-specific articles
 python scripts/populate_kb_articles.py
 ```
 
-The knowledge base is searchable via the `search_knowledge_base()` UC function and integrated into the Live Agent Dashboard.
+### KB Search Features
 
-## Analytics Dashboard
+- **Vector Search**: Uses Databricks Vector Search for semantic similarity matching
+- **SQL Fallback**: Falls back to keyword search if vector search unavailable
+- **Suggested Questions**: Always provides 5 context-aware questions per call
+  - Detects negative sentiment and prioritizes complaint/dispute questions
+  - Context-aware suggestions based on call scenario and intent
+  - Default questions if no context available
+- **Performance**: ~2 seconds per vector search query
 
-A comprehensive Streamlit dashboard for visualizing Gold layer analytics and insights.
+The knowledge base is searchable via the `search_knowledge_base()` UC function and integrated into both Dash and Streamlit dashboards.
 
-### Features
+## Dashboards
 
-1. **Overview Tab**: Key metrics, recent call summaries, and high-level statistics
-2. **Agent Performance Tab**: Top performing agents, performance scores, compliance rates
-3. **Call Summaries Tab**: Filterable call summaries with sentiment and compliance filters
-4. **Daily Statistics Tab**: Daily call volume trends, sentiment rates, and compliance metrics
+### Dash Dashboard (Primary - Port 8050)
 
-### Running the Dashboard
+Unified dashboard application with three main views:
 
+1. **Agent Dashboard** (`http://localhost:8050/agent`):
+   - Live transcript display
+   - AI suggestions with response time
+   - Member info tab
+   - Knowledge base search with suggested questions
+   - Compliance alerts
+   - Call selection dropdown (24-hour window)
+
+2. **Supervisor Dashboard** (`http://localhost:8050/supervisor`):
+   - Real-time call monitoring
+   - Escalation tracking with risk scores
+   - Clickable tabs for filtering (All Calls, Negative Sentiment, Compliance Issues, Complaints)
+   - Escalation cards arranged horizontally
+   - Active call statistics
+
+3. **Analytics Dashboard** (`http://localhost:8050/analytics`):
+   - Overview: Key metrics and recent call summaries
+   - Agent Performance: Top performers with charts
+   - Call Summaries: Filterable by sentiment and compliance
+   - Daily Statistics: Trends and aggregated metrics
+
+**Running Dash Dashboard**:
 ```bash
-# Option 1: Using the run script
-./run_analytics_dashboard.sh
-
-# Option 2: Direct Streamlit command
-streamlit run app/analytics_dashboard.py --server.port 8521
+cd app_dash
+source ../venv/bin/activate
+python app.py
 ```
 
-The dashboard will be available at `http://localhost:8521`
+### Streamlit Dashboards (Alternative)
+
+1. **Agent Dashboard** (`http://localhost:8520`):
+   - Same features as Dash agent dashboard
+   - Streamlit implementation
+
+2. **Analytics Dashboard** (`http://localhost:8521`):
+   - Gold layer analytics visualization
+   - Same features as Dash analytics dashboard
+
+3. **Supervisor Dashboard** (`http://localhost:8522`):
+   - Call monitoring and escalation management
+
+**Running Streamlit Dashboards**:
+```bash
+# Agent Dashboard
+streamlit run app/agent_dashboard.py --server.port 8520
+
+# Analytics Dashboard
+streamlit run app/analytics_dashboard.py --server.port 8521
+
+# Supervisor Dashboard
+streamlit run app/supervisor_dashboard.py --server.port 8522
+```
 
 ### Dashboard Features
 
-- **Real-time Data**: Queries Gold layer tables directly (5-minute cache)
+- **Real-time Data**: Queries Gold layer tables directly (5-minute cache for analytics)
+- **Smart Refresh**: Only updates when data actually changes
 - **Interactive Filters**: Filter by date range, sentiment, compliance status, and intent
 - **Visualizations**: Charts for call volume, sentiment trends, and performance metrics
 - **Agent Search**: Look up specific agent performance metrics

@@ -6,7 +6,9 @@ Main application entry point
 Run: python app_dash/app.py
 """
 import dash
-from dash import html, dcc, Input, Output, State, callback_context
+from dash import html, dcc, Input, Output, State
+from dash import callback_context
+from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 from pathlib import Path
 import sys
@@ -136,6 +138,20 @@ app.index_string = '''
                 font-weight: 600;
             }
             
+            /* Dropdown menu styling - show more options */
+            .Select-menu-outer {
+                max-height: 600px !important;
+                z-index: 9999 !important;
+            }
+            
+            .Select-menu {
+                max-height: 600px !important;
+            }
+            
+            .Select-option {
+                padding: 8px 12px !important;
+            }
+            
             /* Header styling - ART Brand */
             .header-container {
                 background: linear-gradient(135deg, #0051FF 0%, #3385FF 100%);
@@ -147,14 +163,14 @@ app.index_string = '''
             }
             
             .header-container img {
-                display: block !important;
+                display: inline-block !important;
                 visibility: visible !important;
-            }
-            
-            #art-logo {
-                display: block !important;
-                visibility: visible !important;
-                height: 60px !important;
+                opacity: 1 !important;
+                height: 50px !important;
+                max-height: 50px !important;
+                max-width: 200px !important;
+                width: auto !important;
+                object-fit: contain !important;
             }
             
             .header-container h2 {
@@ -243,10 +259,32 @@ app.index_string = '''
                 box-shadow: 0 0 0 3px rgba(0, 81, 255, 0.1);
             }
             
-            /* Dropdowns - ART Style */
+            /* Dropdowns - ART Style - Reduced font size */
             .Select-control, .Select-menu-outer {
                 font-family: 'Montserrat', sans-serif;
-                font-size: 0.95rem;
+                font-size: 0.8rem !important;
+            }
+            
+            /* Dropdown options - prevent overlap */
+            .Select-option {
+                font-size: 0.8rem !important;
+                padding: 0.4rem 0.6rem !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+            }
+            
+            /* Selected value in dropdown */
+            .Select-value-label {
+                font-size: 0.8rem !important;
+                white-space: nowrap !important;
+                overflow: hidden !important;
+                text-overflow: ellipsis !important;
+            }
+            
+            /* Dropdown input */
+            .Select-input {
+                font-size: 0.8rem !important;
             }
             
             /* Alerts - ART Style */
@@ -261,11 +299,24 @@ app.index_string = '''
                 font-family: 'Montserrat', sans-serif;
             }
             
-            /* Transcript bubbles - ART Style */
-            .transcript-bubble {
-                font-family: 'Montserrat', sans-serif;
-                font-size: 0.95rem;
-                line-height: 1.6;
+            /* Sidebar logo styling */
+            .sidebar img {
+                display: block !important;
+                visibility: visible !important;
+                opacity: 1 !important;
+                height: 60px !important;
+                max-width: 100% !important;
+                width: auto !important;
+                object-fit: contain !important;
+                background-color: #FFFFFF !important;
+            }
+            
+            /* Sidebar logo container */
+            .sidebar-logo-container {
+                background-color: #FFFFFF !important;
+                padding: 0.5rem !important;
+                border-radius: 4px !important;
+                margin-top: 1rem !important;
             }
             
             /* Links - ART Style */
@@ -330,8 +381,24 @@ app.index_string = '''
 # Header component
 def create_header():
     """Create application header with logo prominently displayed"""
-    logo_path = Path(__file__).parent.parent / "logo.svg"
-    assets_logo_path = Path(__file__).parent / "assets" / "logo.svg"
+    # Use logo.png instead of logo.svg
+    import os
+    project_root = Path(__file__).parent.parent.absolute()
+    logo_path = project_root / "logo.png"
+    assets_logo_path = Path(__file__).parent / "assets" / "logo.png"
+    
+    # Also try absolute path directly
+    absolute_logo_path = Path("/Users/pravin.varma/Documents/Demo/art-callcenter/logo.png")
+    
+    # Use absolute path if it exists, otherwise use relative
+    if absolute_logo_path.exists():
+        logo_path = absolute_logo_path
+        print(f"✅ Using absolute logo path: {logo_path}")
+    elif logo_path.exists():
+        print(f"✅ Using relative logo path: {logo_path}")
+    else:
+        print(f"⚠️ Logo not found at: {logo_path}")
+        print(f"⚠️ Absolute path also not found: {absolute_logo_path}")
     
     # Ensure assets folder exists and logo is copied
     assets_dir = Path(__file__).parent / "assets"
@@ -342,58 +409,41 @@ def create_header():
         if not assets_logo_path.exists() or logo_path.stat().st_mtime > assets_logo_path.stat().st_mtime:
             import shutil
             shutil.copy(logo_path, assets_logo_path)
+            print(f"✅ Copied logo.png to assets: {assets_logo_path}")
     
     # Check if logo exists
     logo_exists = assets_logo_path.exists()
     
-    # Create logo image - always try to show if file exists
+    # Debug: Print logo status
+    if logo_exists:
+        print(f"✅ Logo found: {assets_logo_path} ({assets_logo_path.stat().st_size} bytes)")
+    else:
+        print(f"⚠️ Logo not found at: {assets_logo_path}")
+        if logo_path.exists():
+            print(f"   Root logo exists: {logo_path}")
+    
+    # Create logo image - use direct assets path (Dash serves /assets/ automatically)
     logo_img = None
     if logo_exists:
-        try:
-            import base64
-            with open(assets_logo_path, 'rb') as f:
-                svg_data = f.read()
-            svg_base64 = base64.b64encode(svg_data).decode('utf-8')
-            data_uri = f'data:image/svg+xml;base64,{svg_base64}'
-            # Use data URI for reliable display
-            logo_img = html.Img(
-                src=data_uri,
-                id="art-logo",
-                style={
-                    "height": "60px", 
-                    "marginRight": "1.5rem",
-                    "maxWidth": "250px",
-                    "objectFit": "contain",
-                    "display": "block",
-                    "verticalAlign": "middle"
-                },
-                alt="Australian Retirement Trust Logo"
-            )
-        except Exception as e:
-            print(f"Error creating data URI logo: {e}")
-            # Fallback to regular path
-            logo_src = "/assets/logo.svg"
-            logo_img = html.Img(
-                src=logo_src,
-                id="art-logo",
-                style={
-                    "height": "60px", 
-                    "marginRight": "1.5rem",
-                    "maxWidth": "250px",
-                    "objectFit": "contain",
-                    "display": "block",
-                    "verticalAlign": "middle"
-                },
-                alt="Australian Retirement Trust Logo"
-            )
+        logo_src = "/assets/logo.png"
+        logo_img = html.Img(
+            src=logo_src,
+            style={
+                "height": "50px", 
+                "width": "auto",
+                "maxHeight": "50px",
+                "maxWidth": "200px",
+                "objectFit": "contain",
+                "display": "inline-block",
+                "verticalAlign": "middle",
+                "marginRight": "1.5rem"
+            },
+            alt="Australian Retirement Trust Logo"
+        )
+        print(f"✅ Logo image created using: {logo_src} (sized: 50px height, max 200px width)")
     
-    # Header content with logo prominently displayed
-    header_content = []
-    
-    if logo_img:
-        header_content.append(logo_img)
-    
-    header_content.append(
+    # Header content - no logo, just title
+    header_content = [
         html.H2("ART Live Agent Assist", style={
             "color": "white", 
             "margin": 0,
@@ -404,7 +454,7 @@ def create_header():
             "display": "inline-block",
             "verticalAlign": "middle"
         })
-    )
+    ]
     
     return html.Div([
         dbc.Container([
@@ -429,34 +479,109 @@ def create_header():
 # Sidebar component
 def create_sidebar():
     """Create sidebar with call selection - persistent sidebar (not Offcanvas)"""
+    # Get logo for sidebar - use SVG
+    logo_path = Path(__file__).parent.parent / "logo.svg"
+    assets_logo_path = Path(__file__).parent / "assets" / "logo.svg"
+    absolute_logo_path = Path("/Users/pravin.varma/Documents/Demo/art-callcenter/logo.svg")
+    
+    # Use absolute path if it exists, otherwise use relative
+    if absolute_logo_path.exists():
+        logo_path = absolute_logo_path
+    elif not logo_path.exists():
+        logo_path = None
+    
+    # Ensure assets folder exists and logo is copied
+    assets_dir = Path(__file__).parent / "assets"
+    assets_dir.mkdir(exist_ok=True)
+    
+    if logo_path and logo_path.exists():
+        if not assets_logo_path.exists() or logo_path.stat().st_mtime > assets_logo_path.stat().st_mtime:
+            import shutil
+            shutil.copy(logo_path, assets_logo_path)
+    
+    # Create logo image for sidebar - left aligned, smaller
+    sidebar_logo = None
+    if assets_logo_path.exists():
+        sidebar_logo = html.Div([
+            html.Img(
+                src="/assets/logo.svg",
+                style={
+                    "height": "60px",
+                    "width": "auto",
+                    "maxWidth": "100%",
+                    "objectFit": "contain",
+                    "display": "block",
+                    "margin": "0 0 1rem 0",
+                    "visibility": "visible",
+                    "opacity": "1",
+                    "backgroundColor": "#FFFFFF"
+                },
+                alt="ART Logo"
+            )
+        ], style={
+            "backgroundColor": "#FFFFFF",
+            "marginBottom": "1rem"
+        })
+        print(f"✅ Sidebar logo created: /assets/logo.svg (60px height, left-aligned)")
+    else:
+        print(f"⚠️ Sidebar logo not found at: {assets_logo_path}")
+    
     return html.Div([
-        html.H3("📞 Active Calls", className="mb-3"),
-        
-        # Call selection dropdown
-        dcc.Dropdown(
-            id="call-selector",
-            placeholder="Select a call to monitor...",
-            style={"marginBottom": "1rem"}
-        ),
-        
-        # Call info display
-        html.Div(id="call-info-display"),
-        
-        html.Hr(),
-        
-        StatusIndicator(is_online=True),
-        
-        html.Hr(),
-        
+        # Toggle button at the top
         html.Div([
-            html.P("System Online", style={"margin": 0})
+            dbc.Button(
+                id="sidebar-toggle",
+                children="☰" if True else "✕",  # Will be updated by callback
+                color="light",
+                size="sm",
+                className="mb-2",
+                style={
+                    "width": "100%",
+                    "textAlign": "center",
+                    "border": "1px solid #E0E0E0"
+                }
+            )
+        ], style={"marginBottom": "0.5rem"}),
+        
+        # Logo at the top, left-aligned
+        html.Div(id="sidebar-content", children=[
+            sidebar_logo if sidebar_logo else html.Div(),
+            
+            html.H3("📞 Active Calls", className="mb-3", style={"marginTop": "0"}),
+            
+            # Call selection dropdown
+            dcc.Dropdown(
+                id="call-selector",
+                placeholder="Select a call to monitor...",
+                style={
+                    "marginBottom": "1rem",
+                    "fontSize": "0.8rem",
+                    "zIndex": 1000
+                },
+                searchable=True,  # Enable search functionality
+                clearable=True,  # Allow clearing selection
+                multi=False
+            ),
+            
+            # Call info display
+            html.Div(id="call-info-display"),
+            
+            html.Hr(),
+            
+            StatusIndicator(is_online=True),
+            
+            html.Hr(),
+            
+            html.Div([
+                html.P("System Online", style={"margin": 0})
+            ])
         ])
-    ], style={
-        "padding": "1.5rem",
+    ], className="sidebar", style={
+        "padding": "1rem",
         "backgroundColor": "#FFFFFF",
         "borderRight": "1px solid #E0E0E0",
         "height": "100%",
-        "minHeight": "calc(100vh - 200px)"
+        "transition": "all 0.3s ease"
     })
 
 # Main layout
@@ -466,6 +591,7 @@ app.layout = html.Div([
     
     # State stores
     *state_manager.create_stores(),
+    dcc.Store(id='store-sidebar-expanded', data=True),  # Sidebar expanded by default
     
     # Header
     create_header(),
@@ -500,10 +626,11 @@ app.layout = html.Div([
     Output('call-selector', 'options'),
     Output('store-active-calls', 'data'),
     Input('interval-component', 'n_intervals'),
+    State('store-active-calls', 'data'),
     prevent_initial_call=False
 )
-def update_active_calls(n_intervals):
-    """Update active calls dropdown"""
+def update_active_calls(n_intervals, previous_calls_data):
+    """Update active calls dropdown - only refresh if call list changed"""
     try:
         calls = get_active_calls()
         
@@ -526,10 +653,37 @@ def update_active_calls(n_intervals):
                 "utterances": utterances
             })
         
+        # Compare with previous data - only update if changed
+        if previous_calls_data:
+            previous_call_ids = {c.get('call_id') for c in previous_calls_data}
+            current_call_ids = {c.get('call_id') for c in calls_data}
+            
+            # If call IDs are the same, prevent update
+            if previous_call_ids == current_call_ids:
+                raise PreventUpdate
+        
         return options, calls_data
+    except PreventUpdate:
+        raise
     except Exception as e:
         print(f"Error fetching active calls: {e}")
         return [], []
+
+# Callback: Restore selected call when returning to agent page
+@app.callback(
+    Output('call-selector', 'value'),
+    Input('url', 'pathname'),
+    State('store-selected-call-id', 'data'),
+    prevent_initial_call=False
+)
+def restore_selected_call(pathname, stored_call_id):
+    """Restore selected call when returning to agent page"""
+    # Only restore on agent page (home page)
+    if pathname == '/' or pathname == '/agent':
+        if stored_call_id:
+            return stored_call_id
+    # Don't update dropdown on other pages - prevent update
+    raise PreventUpdate
 
 # Callback: Update call info display
 @app.callback(
@@ -576,17 +730,21 @@ def update_selected_call_id(selected_call_id):
 @app.callback(
     Output('main-content', 'children'),
     Input('store-selected-call-id', 'data'),
-    prevent_initial_call=True
+    Input('url', 'pathname')
 )
-def update_main_content(selected_call_id):
+def update_main_content(selected_call_id, pathname):
     """Update main content area when call is selected - sidebar stays visible"""
+    # Only update on agent page
+    if pathname != '/' and pathname != '/agent':
+        return html.Div()
+    
     if not selected_call_id:
         return html.H4("Select a call from the sidebar to begin")
     
     return html.Div([
         dbc.Row([
             dbc.Col([
-                html.H4(f"📞 Live Call: {selected_call_id[-8:]}"),
+                html.H4(f"Call {selected_call_id[-8:]}"),
                 html.Div(id="transcript-display")
             ], width=7),
             dbc.Col([
@@ -601,7 +759,12 @@ def update_main_content(selected_call_id):
                             className="mt-3 mb-3",
                             n_clicks=0
                         ),
-                        html.Div(id="suggestion-display")
+                        dcc.Loading(
+                            id="suggestion-loading",
+                            type="default",
+                            children=html.Div(id="suggestion-display"),
+                            style={"minHeight": "100px"}
+                        )
                     ], label="💡 Suggestions", tab_id="suggestions"),
                     dbc.Tab([
                         html.Div(id="member-info-content")
@@ -627,32 +790,47 @@ def update_main_content(selected_call_id):
     Input('store-selected-call-id', 'data'),
     Input('interval-component', 'n_intervals'),
     State('store-last-rendered-call-id', 'data'),
-    State('store-kb-interaction', 'data'),
+    State('store-transcript-data', 'data'),
     prevent_initial_call=True
 )
-def update_transcript(pathname, selected_call_id, n_intervals, last_call_id, kb_interaction):
-    """Fetch and display transcript"""
+def update_transcript(pathname, selected_call_id, n_intervals, last_call_id, previous_transcript_data):
+    """Fetch and display transcript - only refresh when call changes or new data detected"""
     if pathname != '/' and pathname != '/agent':
-        return html.Div(), None
+        raise PreventUpdate
     
     if not selected_call_id:
-        return html.Div(), None
+        raise PreventUpdate
     
-    # Check if we should use cache
+    # Check if call ID changed
     call_id_changed = (selected_call_id != last_call_id)
-    should_fetch = call_id_changed or not kb_interaction
     
-    try:
-        if should_fetch:
+    # If call ID changed, always fetch
+    if call_id_changed:
+        try:
             transcript_df = get_live_transcript(selected_call_id)
             transcript_data = transcript_df.to_dict('records') if transcript_df is not None and not transcript_df.empty else []
-            
             display = TranscriptContainer(transcript_df) if transcript_df is not None and not transcript_df.empty else html.Div("No transcript available")
-            
+            return display, transcript_data
+        except Exception as e:
+            return ErrorAlert(f"Error loading transcript: {e}"), None
+    
+    # If call ID hasn't changed, check if transcript data has changed
+    # Compare current transcript count with previous
+    try:
+        current_transcript_df = get_live_transcript(selected_call_id)
+        current_count = len(current_transcript_df) if current_transcript_df is not None and not current_transcript_df.empty else 0
+        previous_count = len(previous_transcript_data) if previous_transcript_data else 0
+        
+        # Only update if transcript has new data (more rows)
+        if current_count > previous_count:
+            transcript_data = current_transcript_df.to_dict('records') if current_transcript_df is not None and not current_transcript_df.empty else []
+            display = TranscriptContainer(current_transcript_df) if current_transcript_df is not None and not current_transcript_df.empty else html.Div("No transcript available")
             return display, transcript_data
         else:
-            # Use cached data
-            return html.Div("Loading transcript..."), None
+            # No new data - prevent update to avoid refreshing
+            raise PreventUpdate
+    except PreventUpdate:
+        raise
     except Exception as e:
         return ErrorAlert(f"Error loading transcript: {e}"), None
 
@@ -665,7 +843,7 @@ def update_last_rendered_call_id(selected_call_id):
     """Track last rendered call ID for caching"""
     return selected_call_id
 
-# Callback: Get AI suggestion
+# Callback: Get AI suggestion with loading indicator
 @app.callback(
     Output('suggestion-display', 'children'),
     Output('store-suggestion-state', 'data'),
@@ -676,7 +854,7 @@ def update_last_rendered_call_id(selected_call_id):
     prevent_initial_call=True
 )
 def get_ai_suggestion(n_clicks, selected_call_id, suggestion_state):
-    """Get AI suggestion when button is clicked"""
+    """Get AI suggestion when button is clicked - shows loading indicator"""
     if not selected_call_id or n_clicks == 0:
         return html.Div(), suggestion_state, None
     
@@ -690,7 +868,18 @@ def get_ai_suggestion(n_clicks, selected_call_id, suggestion_state):
             'call_id': None
         }
     
+    # Set loading state immediately
+    suggestion_state['loading'] = True
+    
     try:
+        # Show loading message immediately
+        loading_display = dbc.Alert([
+            html.Div([
+                dbc.Spinner(size="sm", color="primary", spinner_class_name="me-2"),
+                html.Span("Analyzing call context and generating AI suggestion...", style={"fontSize": "0.95rem"})
+            ], style={"display": "flex", "alignItems": "center"})
+        ], color="info", className="mb-3")
+        
         # Get heuristic suggestion first (instant)
         heuristic = get_heuristic_suggestion(selected_call_id)
         
@@ -703,8 +892,9 @@ def get_ai_suggestion(n_clicks, selected_call_id, suggestion_state):
             card = create_suggestion_card(heuristic, is_heuristic=True)
             return card, suggestion_state, heuristic
         
-        # Get full AI suggestion (async - placeholder for now)
-        suggestion, response_time, timing = get_ai_suggestion_async(selected_call_id)
+        # Get full AI suggestion (force LLM call, don't use heuristic)
+        # This will take time, so loading indicator will show
+        suggestion, response_time, timing = get_ai_suggestion_async(selected_call_id, use_heuristic=False)
         
         suggestion_state['suggestion_text'] = suggestion
         suggestion_state['response_time'] = response_time
@@ -761,6 +951,9 @@ def update_kb_tab_content(selected_call_id, active_tab):
         for q in suggested_questions:
             radio_options.append({"label": q, "value": q})
         
+        # Get sample question for placeholder (first suggested question)
+        sample_question = suggested_questions[0] if suggested_questions else "Type your question here..."
+        
         return html.Div([
             html.H6("💡 Suggested Questions:", className="mb-2"),
             dbc.RadioItems(
@@ -771,12 +964,25 @@ def update_kb_tab_content(selected_call_id, active_tab):
             ) if radio_options else html.P("No suggestions available", className="text-muted"),
             html.Hr(),
             html.Label("Or search manually:", className="mb-2"),
-            dcc.Input(
-                id="kb-manual-search",
-                type="text",
-                placeholder="Type your question here...",
-                style={"width": "100%"}
+            html.Small(
+                f"💡 Sample question: \"{sample_question}\"",
+                className="text-muted d-block mb-2",
+                style={"fontStyle": "italic"}
             ),
+            dbc.InputGroup([
+                dcc.Input(
+                    id="kb-manual-search",
+                    type="text",
+                    placeholder=sample_question if suggested_questions else "Type your question here...",
+                    style={"width": "100%"}
+                ),
+                dbc.Button(
+                    "🔍 Search",
+                    id="kb-search-button",
+                    color="primary",
+                    n_clicks=0
+                )
+            ], className="mb-2"),
             html.Div(id="kb-results-display", className="mt-3")
         ])
     except Exception as e:
@@ -791,32 +997,44 @@ def update_kb_tab_content(selected_call_id, active_tab):
     Output('store-kb-interaction', 'data'),
     Input('kb-question-radio', 'value'),
     Input('kb-manual-search', 'n_submit'),
+    Input('kb-search-button', 'n_clicks'),
     State('kb-manual-search', 'value'),
-    State('store-kb-selected-question', 'data'),
-    prevent_initial_call=True
+    State('store-kb-selected-question', 'data')
 )
-def search_kb(radio_value, n_submit, manual_query, last_selected):
+def search_kb(radio_value, n_submit, search_button_clicks, manual_query, last_selected):
     """Search KB when question selected or manual search"""
     # Determine which triggered
-    ctx = callback_context
-    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
-    
-    search_query = None
-    
-    if triggered_id == 'kb-question-radio' and radio_value:
-        search_query = radio_value
-    elif triggered_id == 'kb-manual-search' and manual_query:
-        search_query = manual_query
-    
-    if not search_query:
-        return html.Div(), [], None, None, False
-    
     try:
+        ctx = callback_context
+        if not ctx.triggered:
+            return html.Div(), [], None, None, False
+        
+        triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        
+        search_query = None
+        
+        # Check radio button selection
+        if triggered_id == 'kb-question-radio' and radio_value:
+            search_query = radio_value
+        # Check manual search input
+        elif triggered_id == 'kb-manual-search' and manual_query:
+            search_query = manual_query
+        # Check search button click
+        elif triggered_id == 'kb-search-button' and manual_query:
+            search_query = manual_query
+        
+        if not search_query:
+            return html.Div(), [], None, None, False
+        
         # Mark KB interaction
         kb_interaction = True
         
+        print(f"🔍 Searching KB with query: {search_query}")
+        
         # Search KB
         articles = search_kb_vector_search(search_query, num_results=5)
+        
+        print(f"✅ KB search returned {len(articles) if articles else 0} results")
         
         # Update stores
         results_data = articles
@@ -831,23 +1049,37 @@ def search_kb(radio_value, n_submit, manual_query, last_selected):
         
         return display, results_data, query_data, selected_question, kb_interaction
     except Exception as e:
-        return ErrorAlert(f"Error searching KB: {e}"), [], None, None, False
+        print(f"❌ Error searching KB: {e}")
+        import traceback
+        traceback.print_exc()
+        return ErrorAlert(f"Error searching KB: {str(e)}"), [], None, None, False
 
 # Callback: Update Compliance alerts (Phase 7)
 @app.callback(
     Output('compliance-display', 'children'),
     Input('store-selected-call-id', 'data'),
     Input('interval-component', 'n_intervals'),
+    State('store-last-rendered-call-id', 'data'),
+    State('store-transcript-data', 'data'),
     prevent_initial_call=True
 )
-def update_compliance_alerts(selected_call_id, n_intervals):
-    """Update compliance alerts display"""
+def update_compliance_alerts(selected_call_id, n_intervals, last_call_id, transcript_data):
+    """Update compliance alerts display - only refresh when call changes or transcript updates"""
     if not selected_call_id:
-        return html.Div()
+        raise PreventUpdate
+    
+    # Only refresh if call changed or transcript was updated (transcript_data indicates new data)
+    call_id_changed = (selected_call_id != last_call_id)
+    
+    # If call hasn't changed and no transcript data (meaning transcript didn't update), prevent refresh
+    if not call_id_changed and not transcript_data:
+        raise PreventUpdate
     
     try:
         alerts = get_compliance_alerts(selected_call_id)
         return create_compliance_alerts_display(alerts)
+    except PreventUpdate:
+        raise
     except Exception as e:
         return ErrorAlert(f"Error loading compliance alerts: {e}")
 
@@ -859,6 +1091,59 @@ def update_compliance_alerts(selected_call_id, n_intervals):
 def update_active_tab(active_tab):
     """Track which tab is active"""
     return active_tab
+
+# Callback: Toggle sidebar expand/collapse
+@app.callback(
+    Output('store-sidebar-expanded', 'data'),
+    Output('sidebar-toggle', 'children'),
+    Output('sidebar-content', 'style'),
+    Output('sidebar-col', 'width'),
+    Output('main-content-col', 'width'),
+    Input('sidebar-toggle', 'n_clicks'),
+    State('store-sidebar-expanded', 'data'),
+    prevent_initial_call=True
+)
+def toggle_sidebar(n_clicks, is_expanded):
+    """Toggle sidebar expanded/collapsed state"""
+    if n_clicks is None:
+        is_expanded = True  # Default expanded
+    else:
+        is_expanded = not is_expanded
+    
+    if is_expanded:
+        # Expanded state
+        return (
+            True,
+            "☰",  # Hamburger icon
+            {"display": "block"},  # Show content
+            2,  # Sidebar width
+            10  # Main content width
+        )
+    else:
+        # Collapsed state
+        return (
+            False,
+            "→",  # Arrow icon
+            {"display": "none"},  # Hide content
+            1,  # Narrow sidebar (just for toggle button)
+            11  # Expanded main content
+        )
+
+# Callback: Update sidebar toggle button on page load
+@app.callback(
+    Output('sidebar-toggle', 'children', allow_duplicate=True),
+    Output('sidebar-content', 'style', allow_duplicate=True),
+    Output('sidebar-col', 'width', allow_duplicate=True),
+    Output('main-content-col', 'width', allow_duplicate=True),
+    Input('store-sidebar-expanded', 'data'),
+    prevent_initial_call=True
+)
+def update_sidebar_on_load(is_expanded):
+    """Update sidebar state on page load"""
+    if is_expanded:
+        return "☰", {"display": "block"}, 2, 10
+    else:
+        return "→", {"display": "none"}, 1, 11
 
 # Routing callback - display different pages based on URL
 @app.callback(
@@ -875,17 +1160,17 @@ def display_page(pathname):
         # Default: Agent dashboard
         return dbc.Container([
             dbc.Row([
-                # Sidebar column
+                # Sidebar column - dynamic width based on expanded state
                 dbc.Col([
                     create_sidebar()
-                ], width=3),
+                ], id="sidebar-col", width=2),
                 
-                # Main content column
+                # Main content column - dynamic width based on sidebar state
                 dbc.Col([
                     html.Div(id="main-content", children=[
                         html.H4("Select a call from the sidebar to begin")
                     ])
-                ], width=9)
+                ], id="main-content-col", width=10)
             ])
         ], fluid=True)
 

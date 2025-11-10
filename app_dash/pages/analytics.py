@@ -22,7 +22,7 @@ from app_dash.components.common import ErrorAlert
 
 def create_analytics_layout():
     """Create analytics dashboard layout"""
-    return html.Div([
+    return dbc.Container([
         html.H1("📊 ART Call Center Analytics Dashboard", className="mb-4"),
         html.Hr(),
         
@@ -32,10 +32,51 @@ def create_analytics_layout():
                 html.Div(id="analytics-overview-content")
             ], label="📈 Overview", tab_id="overview"),
             dbc.Tab([
-                html.Div(id="analytics-agent-content")
+                html.Div(id="analytics-agent-content"),
+                html.Div([
+                    html.Hr(),
+                    html.H4("Search Agent Performance", className="mb-3"),
+                    dcc.Input(
+                        id="agent-search-input",
+                        type="text",
+                        placeholder="Enter Agent ID (e.g., AGENT-001)",
+                        style={"width": "100%", "marginBottom": "1rem"}
+                    )
+                ], id="agent-search-container", style={"display": "none"})
             ], label="👥 Agent Performance", tab_id="agent"),
             dbc.Tab([
-                html.Div(id="analytics-calls-content")
+                html.Div(id="analytics-calls-content"),
+                html.Div([
+                    html.Hr(),
+                    html.H3("Call Summaries", className="mb-4"),
+                    dbc.Row([
+                        dbc.Col([
+                            html.Label("Sentiment Filter:", className="mb-2"),
+                            dcc.Dropdown(
+                                id="sentiment-filter",
+                                options=[
+                                    {"label": "All", "value": "All"},
+                                    {"label": "Positive", "value": "positive"},
+                                    {"label": "Negative", "value": "negative"},
+                                    {"label": "Neutral", "value": "neutral"}
+                                ],
+                                value="All"
+                            )
+                        ], width=4),
+                        dbc.Col([
+                            html.Label("Compliance Filter:", className="mb-2"),
+                            dcc.Dropdown(
+                                id="compliance-filter",
+                                options=[
+                                    {"label": "All", "value": "All"},
+                                    {"label": "Has Issues", "value": "Has Issues"},
+                                    {"label": "No Issues", "value": "No Issues"}
+                                ],
+                                value="All"
+                            )
+                        ], width=4)
+                    ], className="mb-4")
+                ], id="calls-filter-container", style={"display": "none"})
             ], label="📞 Call Summaries", tab_id="calls"),
             dbc.Tab([
                 html.Div(id="analytics-daily-content")
@@ -49,8 +90,11 @@ def create_analytics_layout():
         dcc.Store(id="store-analytics-daily-stats"),
         
         # Interval for auto-refresh
-        dcc.Interval(id="analytics-interval", interval=300000, n_intervals=0)  # 5 minutes
-    ])
+        dcc.Interval(id="analytics-interval", interval=300000, n_intervals=0),  # 5 minutes
+        
+        # Trigger initial load
+        html.Div(id="analytics-initial-load", style={"display": "none"})
+    ], fluid=True, style={"padding": "2rem"})
 
 def register_analytics_callbacks(app):
     """Register analytics dashboard callbacks"""
@@ -60,9 +104,9 @@ def register_analytics_callbacks(app):
         Output('store-analytics-metrics', 'data'),
         Input('analytics-tabs', 'active_tab'),
         Input('analytics-interval', 'n_intervals'),
-        prevent_initial_call=True
+        Input('analytics-initial-load', 'children')
     )
-    def update_overview(active_tab, n_intervals):
+    def update_overview(active_tab, n_intervals, initial_load):
         """Update overview tab"""
         if active_tab != 'overview':
             return html.Div(), None
@@ -77,25 +121,29 @@ def register_analytics_callbacks(app):
                 html.Hr(),
                 html.H4("Recent Call Summaries", className="mb-3"),
                 create_call_summaries_table(summaries_df)
-            ])
+            ], style={"padding": "1rem 0"})
             
             return content, metrics
         except Exception as e:
-            return ErrorAlert(f"Error loading overview: {e}"), None
+            import traceback
+            error_msg = f"Error loading overview: {str(e)}\n{traceback.format_exc()}"
+            print(error_msg)
+            return ErrorAlert(error_msg), None
     
     @app.callback(
         Output('analytics-agent-content', 'children'),
         Output('store-analytics-agent-performance', 'data'),
+        Output('agent-search-container', 'style'),
         Input('analytics-tabs', 'active_tab'),
         Input('analytics-interval', 'n_intervals'),
+        Input('analytics-initial-load', 'children'),
         Input('agent-search-input', 'value'),
-        State('agent-search-input', 'value'),
-        prevent_initial_call=True
+        prevent_initial_call=False
     )
-    def update_agent_performance(active_tab, n_intervals, search_value, state_value):
+    def update_agent_performance(active_tab, n_intervals, initial_load, search_value):
         """Update agent performance tab"""
         if active_tab != 'agent':
-            return html.Div(), None
+            return html.Div(), None, {"display": "none"}
         
         try:
             if search_value:
@@ -105,50 +153,51 @@ def register_analytics_callbacks(app):
                     content = html.Div([
                         html.H3(f"Agent Performance: {search_value}", className="mb-4"),
                         create_agent_performance_table(agent_df)
-                    ])
+                    ], style={"padding": "1rem 0"})
                 else:
                     content = dbc.Alert(f"No data found for agent {search_value}", color="warning")
             else:
                 # Show top performers
                 top_agents_df = get_agent_performance(limit=20)
-                content = html.Div([
-                    html.H3("Top Performing Agents", className="mb-4"),
-                    create_agent_performance_table(top_agents_df),
-                    html.Hr(),
-                    html.H4("Search Agent Performance", className="mb-3"),
-                    dcc.Input(
-                        id="agent-search-input",
-                        type="text",
-                        placeholder="Enter Agent ID (e.g., AGENT-001)",
-                        style={"width": "100%", "marginBottom": "1rem"}
-                    ),
-                    dbc.Row([
-                        dbc.Col([
-                            create_performance_chart(top_agents_df, 'performance_score')
-                        ], width=6),
-                        dbc.Col([
-                            create_performance_chart(top_agents_df, 'compliance_rate')
-                        ], width=6)
-                    ])
-                ])
+                if top_agents_df is None or top_agents_df.empty:
+                    content = dbc.Alert("No agent performance data available", color="info")
+                else:
+                    content = html.Div([
+                        html.H3("Top Performing Agents", className="mb-4"),
+                        create_agent_performance_table(top_agents_df),
+                        html.Hr(),
+                        dbc.Row([
+                            dbc.Col([
+                                create_performance_chart(top_agents_df, 'performance_score')
+                            ], width=6),
+                            dbc.Col([
+                                create_performance_chart(top_agents_df, 'compliance_rate')
+                            ], width=6)
+                        ])
+                    ], style={"padding": "1rem 0"})
             
-            return content, None
+            return content, None, {"display": "block"}
         except Exception as e:
-            return ErrorAlert(f"Error loading agent performance: {e}"), None
+            import traceback
+            error_msg = f"Error loading agent performance: {str(e)}\n{traceback.format_exc()}"
+            print(error_msg)
+            return ErrorAlert(error_msg), None, {"display": "block"}
     
     @app.callback(
         Output('analytics-calls-content', 'children'),
         Output('store-analytics-call-summaries', 'data'),
+        Output('calls-filter-container', 'style'),
         Input('analytics-tabs', 'active_tab'),
         Input('analytics-interval', 'n_intervals'),
+        Input('analytics-initial-load', 'children'),
         Input('sentiment-filter', 'value'),
         Input('compliance-filter', 'value'),
-        prevent_initial_call=True
+        prevent_initial_call=False
     )
-    def update_call_summaries(active_tab, n_intervals, sentiment_filter, compliance_filter):
+    def update_call_summaries(active_tab, n_intervals, initial_load, sentiment_filter, compliance_filter):
         """Update call summaries tab"""
         if active_tab != 'calls':
-            return html.Div(), None
+            return html.Div(), None, {"display": "none"}
         
         try:
             summaries_df = get_call_summaries_filtered(
@@ -157,48 +206,27 @@ def register_analytics_callbacks(app):
                 limit=100
             )
             
-            content = html.Div([
-                html.H3("Call Summaries", className="mb-4"),
-                dbc.Row([
-                    dbc.Col([
-                        html.Label("Sentiment Filter:", className="mb-2"),
-                        dcc.Dropdown(
-                            id="sentiment-filter",
-                            options=[
-                                {"label": "All", "value": "All"},
-                                {"label": "Positive", "value": "positive"},
-                                {"label": "Negative", "value": "negative"},
-                                {"label": "Neutral", "value": "neutral"}
-                            ],
-                            value="All"
-                        )
-                    ], width=4),
-                    dbc.Col([
-                        html.Label("Compliance Filter:", className="mb-2"),
-                        dcc.Dropdown(
-                            id="compliance-filter",
-                            options=[
-                                {"label": "All", "value": "All"},
-                                {"label": "Has Issues", "value": "Has Issues"},
-                                {"label": "No Issues", "value": "No Issues"}
-                            ],
-                            value="All"
-                        )
-                    ], width=4)
-                ], className="mb-4"),
-                create_call_summaries_table(summaries_df)
-            ])
+            if summaries_df is None or summaries_df.empty:
+                return html.Div([
+                    dbc.Alert("No call summaries available", color="info")
+                ], style={"padding": "1rem 0"}), [], {"display": "block"}
             
-            return content, summaries_df.to_dict('records') if summaries_df is not None and not summaries_df.empty else []
+            content = html.Div([
+                create_call_summaries_table(summaries_df)
+            ], style={"padding": "1rem 0"})
+            
+            return content, summaries_df.to_dict('records') if summaries_df is not None and not summaries_df.empty else [], {"display": "block"}
         except Exception as e:
-            return ErrorAlert(f"Error loading call summaries: {e}"), None
+            import traceback
+            error_msg = f"Error loading call summaries: {str(e)}\n{traceback.format_exc()}"
+            print(error_msg)
+            return ErrorAlert(error_msg), None, {"display": "block"}
     
     @app.callback(
         Output('analytics-daily-content', 'children'),
         Output('store-analytics-daily-stats', 'data'),
         Input('analytics-tabs', 'active_tab'),
-        Input('analytics-interval', 'n_intervals'),
-        prevent_initial_call=True
+        Input('analytics-interval', 'n_intervals')
     )
     def update_daily_statistics(active_tab, n_intervals):
         """Update daily statistics tab"""
@@ -220,9 +248,12 @@ def register_analytics_callbacks(app):
                 create_daily_stats_chart(daily_df),
                 html.Hr(),
                 create_call_summaries_table(daily_df)  # Reuse table component
-            ])
+            ], style={"padding": "1rem 0"})
             
             return content, daily_df.to_dict('records')
         except Exception as e:
-            return ErrorAlert(f"Error loading daily statistics: {e}"), None
+            import traceback
+            error_msg = f"Error loading daily statistics: {str(e)}\n{traceback.format_exc()}"
+            print(error_msg)
+            return ErrorAlert(error_msg), None
 
