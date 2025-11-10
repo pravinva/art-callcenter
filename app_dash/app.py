@@ -310,18 +310,22 @@ def update_main_content(selected_call_id):
         ])
     ])
 
-# Callback: Fetch and display transcript
+# Callback: Fetch and display transcript (only on agent page)
 @app.callback(
     Output('transcript-display', 'children'),
     Output('store-transcript-data', 'data'),
+    Input('url', 'pathname'),
     Input('store-selected-call-id', 'data'),
     Input('interval-component', 'n_intervals'),
     State('store-last-rendered-call-id', 'data'),
     State('store-kb-interaction', 'data'),
     prevent_initial_call=True
 )
-def update_transcript(selected_call_id, n_intervals, last_call_id, kb_interaction):
+def update_transcript(pathname, selected_call_id, n_intervals, last_call_id, kb_interaction):
     """Fetch and display transcript"""
+    if pathname != '/' and pathname != '/agent':
+        return html.Div(), None
+    
     if not selected_call_id:
         return html.Div(), None
     
@@ -332,9 +336,9 @@ def update_transcript(selected_call_id, n_intervals, last_call_id, kb_interactio
     try:
         if should_fetch:
             transcript_df = get_live_transcript(selected_call_id)
-            transcript_data = transcript_df.to_dict('records') if not transcript_df.empty else []
+            transcript_data = transcript_df.to_dict('records') if transcript_df is not None and not transcript_df.empty else []
             
-            display = TranscriptContainer(transcript_df)
+            display = TranscriptContainer(transcript_df) if transcript_df is not None and not transcript_df.empty else html.Div("No transcript available")
             
             return display, transcript_data
         else:
