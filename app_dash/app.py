@@ -45,11 +45,12 @@ ART_WARNING_ORANGE = "#FF6B35"
 ART_ERROR_RED = "#DC3545"
 
 # Initialize Dash app with Bootstrap theme
+# Using Montserrat (ART website style) - available on Google Fonts
 app = dash.Dash(
     __name__,
     external_stylesheets=[
         dbc.themes.BOOTSTRAP,
-        "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+        "https://fonts.googleapis.com/css2?family=Montserrat:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap"
     ],
     suppress_callback_exceptions=True  # Allow dynamic callbacks
 )
@@ -60,7 +61,7 @@ app.title = "ART Live Agent Assist"
 # Initialize state manager
 state_manager = StateManager()
 
-# Custom CSS
+# Custom CSS - Australian Retirement Trust Branding
 app.index_string = '''
 <!DOCTYPE html>
 <html>
@@ -70,6 +71,7 @@ app.index_string = '''
         {%favicon%}
         {%css%}
         <style>
+            /* Australian Retirement Trust Brand Colors */
             :root {
                 --art-primary-blue: #0051FF;
                 --art-dark-blue: #0033CC;
@@ -77,7 +79,9 @@ app.index_string = '''
                 --art-accent-blue: #3385FF;
                 --art-text-dark: #1A1A1A;
                 --art-text-gray: #666666;
+                --art-text-light-gray: #999999;
                 --art-bg-light: #F8F9FA;
+                --art-bg-white: #FFFFFF;
                 --art-border: #E0E0E0;
                 --art-white: #FFFFFF;
                 --art-success: #00A651;
@@ -85,16 +89,218 @@ app.index_string = '''
                 --art-error: #DC3545;
             }
             
-            body {
-                font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                background-color: var(--art-bg-light);
+            /* Typography - ART Website Style */
+            * {
+                font-family: 'Montserrat', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
             }
             
+            body {
+                font-family: 'Montserrat', 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+                font-weight: 400;
+                font-size: 16px;
+                line-height: 1.6;
+                color: var(--art-text-dark);
+                background-color: var(--art-bg-light);
+                -webkit-font-smoothing: antialiased;
+                -moz-osx-font-smoothing: grayscale;
+            }
+            
+            /* Headings - Montserrat with proper weights */
+            h1, h2, h3, h4, h5, h6 {
+                font-family: 'Montserrat', 'Inter', sans-serif;
+                font-weight: 700;
+                color: var(--art-text-dark);
+                line-height: 1.3;
+                margin-bottom: 1rem;
+            }
+            
+            h1 {
+                font-size: 2.5rem;
+                font-weight: 800;
+                letter-spacing: -0.02em;
+            }
+            
+            h2 {
+                font-size: 2rem;
+                font-weight: 700;
+                letter-spacing: -0.01em;
+            }
+            
+            h3 {
+                font-size: 1.5rem;
+                font-weight: 600;
+            }
+            
+            h4 {
+                font-size: 1.25rem;
+                font-weight: 600;
+            }
+            
+            /* Header styling - ART Brand */
             .header-container {
                 background: linear-gradient(135deg, #0051FF 0%, #3385FF 100%);
                 padding: 2rem 2.5rem;
                 color: white;
-                margin-bottom: 2rem;
+                margin-bottom: 0;
+                box-shadow: 0 2px 8px rgba(0, 81, 255, 0.15);
+            }
+            
+            .header-container h2 {
+                color: white;
+                font-weight: 700;
+                font-size: 1.75rem;
+                letter-spacing: -0.01em;
+            }
+            
+            /* Navigation - ART Style */
+            .navbar {
+                font-family: 'Montserrat', sans-serif;
+                font-weight: 500;
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.08);
+            }
+            
+            .navbar-brand {
+                font-weight: 700;
+                font-size: 1.25rem;
+            }
+            
+            .nav-link {
+                font-weight: 500;
+                font-size: 0.95rem;
+            }
+            
+            /* Buttons - ART Style */
+            .btn {
+                font-family: 'Montserrat', sans-serif;
+                font-weight: 600;
+                border-radius: 8px;
+                padding: 0.625rem 1.5rem;
+                font-size: 0.95rem;
+                transition: all 0.2s ease;
+            }
+            
+            .btn-primary {
+                background-color: var(--art-primary-blue);
+                border-color: var(--art-primary-blue);
+            }
+            
+            .btn-primary:hover {
+                background-color: var(--art-dark-blue);
+                border-color: var(--art-dark-blue);
+                transform: translateY(-1px);
+                box-shadow: 0 4px 8px rgba(0, 81, 255, 0.2);
+            }
+            
+            /* Cards - ART Style */
+            .card {
+                border-radius: 12px;
+                border: 1px solid var(--art-border);
+                box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+                font-family: 'Montserrat', sans-serif;
+            }
+            
+            .card-header {
+                font-weight: 600;
+                font-size: 1.1rem;
+                background-color: var(--art-bg-white);
+                border-bottom: 1px solid var(--art-border);
+            }
+            
+            /* Tables - ART Style */
+            table {
+                font-family: 'Montserrat', sans-serif;
+                font-size: 0.95rem;
+            }
+            
+            th {
+                font-weight: 600;
+                color: var(--art-text-dark);
+            }
+            
+            /* Form elements - ART Style */
+            .form-control, .form-select {
+                font-family: 'Montserrat', sans-serif;
+                border-radius: 8px;
+                border: 1.5px solid var(--art-border);
+                padding: 0.625rem 1rem;
+                font-size: 0.95rem;
+            }
+            
+            .form-control:focus, .form-select:focus {
+                border-color: var(--art-primary-blue);
+                box-shadow: 0 0 0 3px rgba(0, 81, 255, 0.1);
+            }
+            
+            /* Dropdowns - ART Style */
+            .Select-control, .Select-menu-outer {
+                font-family: 'Montserrat', sans-serif;
+                font-size: 0.95rem;
+            }
+            
+            /* Alerts - ART Style */
+            .alert {
+                border-radius: 8px;
+                font-family: 'Montserrat', sans-serif;
+                font-weight: 500;
+            }
+            
+            /* Sidebar - ART Style */
+            .sidebar {
+                font-family: 'Montserrat', sans-serif;
+            }
+            
+            /* Transcript bubbles - ART Style */
+            .transcript-bubble {
+                font-family: 'Montserrat', sans-serif;
+                font-size: 0.95rem;
+                line-height: 1.6;
+            }
+            
+            /* Links - ART Style */
+            a {
+                color: var(--art-primary-blue);
+                text-decoration: none;
+                font-weight: 500;
+                transition: color 0.2s ease;
+            }
+            
+            a:hover {
+                color: var(--art-dark-blue);
+                text-decoration: underline;
+            }
+            
+            /* Text styles */
+            .text-muted {
+                color: var(--art-text-gray) !important;
+                font-weight: 400;
+            }
+            
+            strong {
+                font-weight: 600;
+            }
+            
+            /* Spacing adjustments */
+            .mb-3 {
+                margin-bottom: 1.5rem !important;
+            }
+            
+            .mb-4 {
+                margin-bottom: 2rem !important;
+            }
+            
+            /* Responsive typography */
+            @media (max-width: 768px) {
+                h1 {
+                    font-size: 2rem;
+                }
+                
+                h2 {
+                    font-size: 1.75rem;
+                }
+                
+                body {
+                    font-size: 15px;
+                }
             }
         </style>
     </head>
@@ -170,7 +376,14 @@ def create_header():
         dbc.Row([
             dbc.Col([
                 logo_img if logo_img else html.Div(),
-                html.H2("ART Live Agent Assist", style={"color": "white", "margin": 0})
+                html.H2("ART Live Agent Assist", style={
+                    "color": "white", 
+                    "margin": 0,
+                    "fontFamily": "'Montserrat', sans-serif",
+                    "fontWeight": "700",
+                    "fontSize": "1.75rem",
+                    "letterSpacing": "-0.01em"
+                })
             ], width="auto"),
             dbc.Col([
                 StatusIndicator(is_online=True)
