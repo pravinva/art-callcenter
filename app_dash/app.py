@@ -16,11 +16,15 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # Import utilities
 from app_dash.utils.state_manager import StateManager
-from app_dash.utils.data_fetchers import get_active_calls, get_live_transcript
+from app_dash.utils.data_fetchers import get_active_calls, get_live_transcript, get_call_context, get_compliance_alerts
 from app_dash.utils.ai_suggestions import get_heuristic_suggestion, get_ai_suggestion_async
+from app_dash.utils.kb_search import get_suggested_kb_questions, search_kb_vector_search
 from app_dash.components.common import StatusIndicator, ErrorAlert
 from app_dash.components.transcript import TranscriptContainer
 from app_dash.components.ai_suggestions import create_suggestion_card
+from app_dash.components.member_info import create_member_info_display
+from app_dash.components.kb_search import create_kb_results_display
+from app_dash.components.compliance import create_compliance_alerts_display
 
 # ART Brand Colors
 ART_PRIMARY_BLUE = "#0051FF"
@@ -280,7 +284,15 @@ def update_main_content(selected_call_id):
                 html.H4("🤖 AI Assistant"),
                 dbc.Tabs([
                     dbc.Tab([
-                        html.Div(id="ai-suggestions-content")
+                        html.Div(id="ai-suggestions-content"),
+                        dbc.Button(
+                            "🔄 Get AI Suggestion",
+                            id="btn-get-suggestion",
+                            color="primary",
+                            className="mt-3 mb-3",
+                            n_clicks=0
+                        ),
+                        html.Div(id="suggestion-display")
                     ], label="💡 Suggestions", tab_id="suggestions"),
                     dbc.Tab([
                         html.Div(id="member-info-content")
@@ -290,16 +302,10 @@ def update_main_content(selected_call_id):
                     ], label="📚 Knowledge Base", tab_id="kb")
                 ], id="ai-tabs", active_tab="suggestions"),
                 
-                # AI Suggestions button
-                dbc.Button(
-                    "🔄 Get AI Suggestion",
-                    id="btn-get-suggestion",
-                    color="primary",
-                    className="mt-3",
-                    n_clicks=0
-                ),
-                html.Div(id="suggestion-display"),
-                html.Div(id="suggestion-loading", style={"display": "none"})
+                html.Hr(),
+                
+                html.H5("⚖️ Compliance Status"),
+                html.Div(id="compliance-display")
             ], width=5)
         ])
     ])
@@ -399,6 +405,147 @@ def get_ai_suggestion(n_clicks, selected_call_id, suggestion_state):
         suggestion_state['error'] = str(e)
         suggestion_state['loading'] = False
         return ErrorAlert(f"Error getting suggestion: {e}"), suggestion_state, None
+
+# Callback: Update Member Info tab (Phase 5)
+@app.callback(
+    Output('member-info-content', 'children'),
+    Input('store-selected-call-id', 'data'),
+    Input('ai-tabs', 'active_tab'),
+    prevent_initial_call=True
+)
+def update_member_info(selected_call_id, active_tab):
+    """Update member info when tab is active and call is selected"""
+    if active_tab != 'member-info' or not selected_call_id:
+        return html.Div()
+    
+    try:
+        member_context = get_call_context(selected_call_id)
+        if member_context:
+            return create_member_info_display(member_context)
+        else:
+            return dbc.Alert("No member context available", color="info")
+    except Exception as e:
+        return ErrorAlert(f"Error loading member info: {e}")
+
+# Callback: Update KB tab content (Phase 6)
+@app.callback(
+    Output('kb-content', 'children'),
+    Input('store-selected-call-id', 'data'),
+    Input('ai-tabs', 'active_tab'),
+    prevent_initial_call=True
+)
+def update_kb_tab_content(selected_call_id, active_tab):
+    """Update KB tab content when tab is active"""
+    if active_tab != 'kb' or not selected_call_id:
+        return html.Div()
+    
+    try:
+        # Get suggested questions
+        suggested_questions = get_suggested_kb_questions(selected_call_id)
+        
+        # Radio options
+        radio_options = []
+        for q in suggested_questions:
+            radio_options.append({"label": q, "value": q})
+        
+        return html.Div([
+            html.H6("💡 Suggested Questions:", className="mb-2"),
+            dbc.RadioItems(
+                id="kb-question-radio",
+                options=radio_options,
+                value=None,
+                className="mb-3"
+            ) if radio_options else html.P("No suggestions available", className="text-muted"),
+            html.Hr(),
+            html.Label("Or search manually:", className="mb-2"),
+            dcc.Input(
+                id="kb-manual-search",
+                type="text",
+                placeholder="Type your question here...",
+                style={"width": "100%"}
+            ),
+            html.Div(id="kb-results-display", className="mt-3")
+        ])
+    except Exception as e:
+        return ErrorAlert(f"Error loading KB: {e}")
+
+# Callback: KB search when radio selected or manual search (Phase 6)
+@app.callback(
+    Output('kb-results-display', 'children'),
+    Output('store-kb-results', 'data'),
+    Output('store-kb-query', 'data'),
+    Output('store-kb-selected-question', 'data'),
+    Output('store-kb-interaction', 'data'),
+    Input('kb-question-radio', 'value'),
+    Input('kb-manual-search', 'n_submit'),
+    State('kb-manual-search', 'value'),
+    State('store-kb-selected-question', 'data'),
+    prevent_initial_call=True
+)
+def search_kb(radio_value, n_submit, manual_query, last_selected):
+    """Search KB when question selected or manual search"""
+    # Determine which triggered
+    ctx = callback_context
+    triggered_id = ctx.triggered[0]['prop_id'].split('.')[0] if ctx.triggered else None
+    
+    search_query = None
+    
+    if triggered_id == 'kb-question-radio' and radio_value:
+        search_query = radio_value
+    elif triggered_id == 'kb-manual-search' and manual_query:
+        search_query = manual_query
+    
+    if not search_query:
+        return html.Div(), [], None, None, False
+    
+    try:
+        # Mark KB interaction
+        kb_interaction = True
+        
+        # Search KB
+        articles = search_kb_vector_search(search_query, num_results=5)
+        
+        # Update stores
+        results_data = articles
+        query_data = search_query
+        selected_question = search_query if triggered_id == 'kb-question-radio' else None
+        
+        # Display results
+        if articles:
+            display = create_kb_results_display(articles, search_query)
+        else:
+            display = dbc.Alert("No results found. Try rephrasing your question.", color="info")
+        
+        return display, results_data, query_data, selected_question, kb_interaction
+    except Exception as e:
+        return ErrorAlert(f"Error searching KB: {e}"), [], None, None, False
+
+# Callback: Update Compliance alerts (Phase 7)
+@app.callback(
+    Output('compliance-display', 'children'),
+    Input('store-selected-call-id', 'data'),
+    Input('interval-component', 'n_intervals'),
+    prevent_initial_call=True
+)
+def update_compliance_alerts(selected_call_id, n_intervals):
+    """Update compliance alerts display"""
+    if not selected_call_id:
+        return html.Div()
+    
+    try:
+        alerts = get_compliance_alerts(selected_call_id)
+        return create_compliance_alerts_display(alerts)
+    except Exception as e:
+        return ErrorAlert(f"Error loading compliance alerts: {e}")
+
+# Callback: Track active tab (Phase 8)
+@app.callback(
+    Output('store-active-tab', 'data'),
+    Input('ai-tabs', 'active_tab')
+)
+def update_active_tab(active_tab):
+    """Track which tab is active"""
+    return active_tab
 
 if __name__ == '__main__':
     app.run_server(debug=True, port=8050)
