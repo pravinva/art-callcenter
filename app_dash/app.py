@@ -109,15 +109,31 @@ app.index_string = '''
 def create_header():
     """Create application header"""
     logo_path = Path(__file__).parent.parent / "logo.svg"
-    logo_exists = logo_path.exists()
+    assets_logo_path = Path(__file__).parent / "assets" / "logo.svg"
+    
+    # Check both locations
+    logo_exists = logo_path.exists() or assets_logo_path.exists()
+    
+    # Use assets folder logo if available, otherwise try root
+    if assets_logo_path.exists():
+        logo_src = "/assets/logo.svg"
+    elif logo_path.exists():
+        # Copy to assets if not already there
+        import shutil
+        assets_dir = Path(__file__).parent / "assets"
+        assets_dir.mkdir(exist_ok=True)
+        shutil.copy(logo_path, assets_logo_path)
+        logo_src = "/assets/logo.svg"
+    else:
+        logo_src = ""
     
     return html.Div([
         dbc.Row([
             dbc.Col([
                 html.Img(
-                    src=f"/assets/{logo_path.name}" if logo_exists else "",
+                    src=logo_src,
                     style={"height": "50px", "marginRight": "1rem"} if logo_exists else {"display": "none"}
-                ),
+                ) if logo_exists else html.Div(),
                 html.H2("ART Live Agent Assist", style={"color": "white", "margin": 0})
             ], width="auto"),
             dbc.Col([
@@ -552,4 +568,4 @@ def update_active_tab(active_tab):
     return active_tab
 
 if __name__ == '__main__':
-    app.run_server(debug=True, port=8050)
+    app.run(debug=False, port=8050, host='127.0.0.1')

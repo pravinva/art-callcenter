@@ -53,6 +53,7 @@ def execute_sql(
             if status.status.state == StatementState.SUCCEEDED:
                 if status.manifest:
                     result_manifest = status.manifest
+                # Also store status for fallback access
                 break
             elif status.status.state in [StatementState.FAILED, StatementState.CANCELED]:
                 error_msg = f"SQL execution failed: {status.status.state}"
@@ -66,20 +67,60 @@ def execute_sql(
         if not result_manifest:
             return [] if not return_dataframe else None
         
-        # Extract results
+        # Get results using chunked API (like Streamlit version)
+        all_rows = []
+        chunk_index = 0
+        
+        try:
+            while True:
+                result_chunk = w.statement_execution.get_statement_result_chunk_n(statement_id, chunk_index)
+                if not result_chunk or not result_chunk.data_array:
+                    break
+                
+                all_rows.extend(result_chunk.data_array)
+                
+                # Check if there are more chunks
+                if not result_chunk.next_chunk_index or result_chunk.next_chunk_index == chunk_index:
+                    break
+                chunk_index = result_chunk.next_chunk_index
+        except Exception as chunk_error:
+            # Fallback to manifest-based approach if chunk API fails
+            print(f"Chunk API failed, using manifest: {chunk_error}")
+            all_rows = []
+        
+        # Extract results - handle both chunked and manifest-based results
         if return_dataframe:
             import pandas as pd
-            if result_manifest.result_sets and len(result_manifest.result_sets) > 0:
+            if all_rows:
+                # Use chunked results
+                if result_manifest and result_manifest.schema and result_manifest.schema.columns:
+                    columns = [col.name for col in result_manifest.schema.columns]
+                    df = pd.DataFrame(all_rows, columns=columns)
+                    return df
+                elif all_rows and isinstance(all_rows[0], dict):
+                    # Dict format
+                    df = pd.DataFrame(all_rows)
+                    return df
+                else:
+                    # Array format - infer columns
+                    num_cols = len(all_rows[0]) if all_rows else 0
+                    columns = [f"col_{i+1}" for i in range(num_cols)]
+                    df = pd.DataFrame(all_rows, columns=columns)
+                    return df
+            # Fallback: try manifest result_sets
+            elif result_manifest and hasattr(result_manifest, 'result_sets') and result_manifest.result_sets and len(result_manifest.result_sets) > 0:
                 result_set = result_manifest.result_sets[0]
                 if result_set.rows:
-                    # Convert to DataFrame
                     columns = [col.name for col in result_set.schema.columns]
                     data = [[cell.value for cell in row.values] for row in result_set.rows]
                     return pd.DataFrame(data, columns=columns)
             return pd.DataFrame()
         else:
             # Return list of tuples
-            if result_manifest.result_sets and len(result_manifest.result_sets) > 0:
+            if all_rows:
+                return all_rows
+            # Fallback: try manifest result_sets
+            elif result_manifest and hasattr(result_manifest, 'result_sets') and result_manifest.result_sets and len(result_manifest.result_sets) > 0:
                 result_set = result_manifest.result_sets[0]
                 if result_set.rows:
                     return [[cell.value for cell in row.values] for row in result_set.rows]
