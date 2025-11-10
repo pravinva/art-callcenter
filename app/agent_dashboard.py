@@ -21,7 +21,7 @@ from config.config import (
     get_workspace_url, SQL_WAREHOUSE_ID,
     ENRICHED_TABLE, FUNCTION_GET_CALL_CONTEXT,
     FUNCTION_SEARCH_KB, FUNCTION_CHECK_COMPLIANCE,
-    FUNCTION_GET_MEMBER_HISTORY
+    FUNCTION_GET_MEMBER_HISTORY, FUNCTION_IDENTIFY_ESCALATION
 )
 import os
 import time
@@ -160,6 +160,21 @@ st.markdown(f"""
     .compliance-critical {{
         background-color: #FFEBEE;
         border-left: 4px solid {ART_ERROR_RED};
+    }}
+    
+    /* Escalation alert */
+    .escalation-alert {{
+        background-color: #FFF3E0;
+        border-left: 4px solid {ART_WARNING_ORANGE};
+        padding: 1rem;
+        border-radius: 8px;
+        margin: 1rem 0;
+    }}
+    
+    .escalation-critical {{
+        background-color: #FFEBEE;
+        border-left: 4px solid {ART_ERROR_RED};
+        font-weight: 600;
     }}
     
     /* AI suggestion card */
@@ -428,6 +443,12 @@ def get_compliance_alerts(call_id):
     results = execute_sql(query, return_dataframe=False)
     return results
 
+def get_escalation_triggers(call_id):
+    """Get escalation triggers for a call"""
+    query = f"SELECT * FROM {FUNCTION_IDENTIFY_ESCALATION}('{call_id}')"
+    results = execute_sql(query, return_dataframe=False)
+    return results
+
 # Header with logo
 logo_path = Path(__file__).parent.parent / "logo.svg"
 
@@ -666,8 +687,52 @@ if selected_call_id:
                         </div>
                         """, unsafe_allow_html=True)
     
-    # COLUMN 3: Compliance Alerts
+    # COLUMN 3: Compliance Alerts & Escalation
     with col3:
+        # Escalation Alerts (shown first if escalation needed)
+        st.header("🚨 Escalation Status")
+        
+        try:
+            escalation_data = get_escalation_triggers(selected_call_id)
+            
+            if escalation_data and len(escalation_data) > 0:
+                escalation = escalation_data[0]
+                if isinstance(escalation, (list, tuple)) and len(escalation) >= 7:
+                    escalation_recommended = escalation[0]
+                    risk_score = escalation[1]
+                    risk_factors = escalation[2] if escalation[2] else "None"
+                    negative_count = escalation[3]
+                    compliance_count = escalation[4]
+                    complaint_count = escalation[5]
+                    recommendation = escalation[6]
+                    
+                    if escalation_recommended:
+                        alert_class = "escalation-critical"
+                        st.markdown(f"""
+                        <div class="{alert_class}">
+                            <strong>🚨 ESCALATION RECOMMENDED</strong><br>
+                            <strong>Risk Score:</strong> {risk_score}<br>
+                            <strong>Risk Factors:</strong> {risk_factors}<br>
+                            <strong>Negative Sentiments:</strong> {negative_count}<br>
+                            <strong>Compliance Violations:</strong> {compliance_count}<br>
+                            <strong>Complaint Intents:</strong> {complaint_count}<br>
+                            <br>
+                            <strong>Recommendation:</strong><br>
+                            {recommendation}
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.success(f"✅ No escalation needed\n\n**Risk Score:** {risk_score}\n\n**Status:** {recommendation}")
+                else:
+                    st.info("Escalation data unavailable")
+            else:
+                st.info("Escalation data unavailable")
+        except Exception as e:
+            st.error(f"Error loading escalation: {e}")
+        
+        st.markdown("---")
+        
+        # Compliance Alerts
         st.header("⚠️ Compliance Alerts")
         
         try:

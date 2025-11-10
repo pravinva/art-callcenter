@@ -32,6 +32,8 @@ from config.config import (
     LLM_ENDPOINT_NAME,
     FUNCTION_GET_CALL_CONTEXT, FUNCTION_SEARCH_KB,
     FUNCTION_CHECK_COMPLIANCE, FUNCTION_GET_MEMBER_HISTORY,
+    FUNCTION_DETECT_SENTIMENT, FUNCTION_EXTRACT_INTENT,
+    FUNCTION_IDENTIFY_ESCALATION,
     AGENT_MODEL_NAME, AGENT_ENDPOINT_NAME
 )
 
@@ -50,20 +52,30 @@ You have access to real-time call transcripts via Online Tables and can provide 
 - `search_knowledge_base(query)` - Find relevant KB articles
 - `check_compliance_realtime(call_id)` - Check for violations
 - `get_member_history(member_id)` - Recent member interactions
+- `detect_sentiment(call_id)` - Analyze sentiment for a call (identify frustrated/at-risk members)
+- `extract_member_intent(call_id)` - Extract member intent categories
+- `identify_escalation_triggers(call_id)` - Auto-escalate high-risk calls (negative sentiment + compliance + complaint)
 
 **Critical Rules:**
 1. NEVER guarantee investment returns or performance
 2. NEVER provide personal financial advice (general information only)
 3. ALWAYS flag compliance issues with [COMPLIANCE WARNING] prefix
-4. Keep suggestions concise (2-3 sentences max)
-5. Cite KB article IDs when providing policy information
+4. Use `identify_escalation_triggers()` to check if call needs escalation (high-risk calls)
+5. Use `detect_sentiment()` to identify frustrated/at-risk members
+6. Use `extract_member_intent()` to understand what the member wants
+7. Keep suggestions concise (2-3 sentences max)
+8. Cite KB article IDs when providing policy information
+9. Use ONLY the tools you need - don't call all tools for every request
 
 **Response Format:**
 When asked to assist with a call:
 1. Call get_live_call_context() to understand the situation
-2. Check for compliance issues ONLY if context shows potential violations
-3. Search KB ONLY if specific policy information is needed
-4. Provide a concise suggested response (2-3 sentences max)
+2. Use identify_escalation_triggers() to check if escalation is needed
+3. Use detect_sentiment() if member seems frustrated or at-risk
+4. Use extract_member_intent() to understand what member wants
+5. Check for compliance issues ONLY if context shows potential violations
+6. Search KB ONLY if specific policy information is needed
+7. Provide a concise suggested response (2-3 sentences max)
 
 **Be FAST and CONCISE:**
 - Use only necessary tools (don't call all 4 tools every time)
@@ -233,12 +245,72 @@ def create_agent_with_langchain():
             except Exception as e:
                 return f"Error getting member history: {e}"
         
+        @tool
+        def detect_sentiment(call_id: Annotated[str, "The call ID to analyze sentiment for"]) -> str:
+            """Detect sentiment for a call to identify frustrated/at-risk members."""
+            try:
+                query = f"SELECT * FROM {FUNCTION_DETECT_SENTIMENT}('{call_id}')"
+                results = execute_sql_tool(query)
+                
+                if results:
+                    sentiment_summary = []
+                    for row in results:
+                        sentiment_summary.append(f"{row[0]}: {row[1]} segments (latest: {row[2][:50]}...)")
+                    return "\n".join(sentiment_summary)
+                return "No sentiment data found"
+            except Exception as e:
+                return f"Error detecting sentiment: {e}"
+        
+        @tool
+        def extract_member_intent(call_id: Annotated[str, "The call ID to extract intent for"]) -> str:
+            """Extract member intent categories from a call."""
+            try:
+                query = f"SELECT * FROM {FUNCTION_EXTRACT_INTENT}('{call_id}')"
+                results = execute_sql_tool(query)
+                
+                if results:
+                    intent_summary = []
+                    for row in results:
+                        intent_summary.append(f"{row[0]}: {row[1]} segments (confidence: {row[2]:.2f})")
+                    return "\n".join(intent_summary)
+                return "No intent data found"
+            except Exception as e:
+                return f"Error extracting intent: {e}"
+        
+        @tool
+        def identify_escalation_triggers(call_id: Annotated[str, "The call ID to check for escalation triggers"]) -> str:
+            """Identify escalation triggers for high-risk calls (negative sentiment + compliance violation + complaint intent)."""
+            try:
+                query = f"SELECT * FROM {FUNCTION_IDENTIFY_ESCALATION}('{call_id}')"
+                results = execute_sql_tool(query)
+                
+                if results:
+                    row = results[0]
+                    escalation = row[0]  # escalation_recommended
+                    risk_score = row[1]  # risk_score
+                    risk_factors = row[2]  # risk_factors
+                    negative_count = row[3]  # negative_sentiment_count
+                    compliance_count = row[4]  # compliance_violations_count
+                    complaint_count = row[5]  # complaint_intent_count
+                    recommendation = row[6]  # recommendation
+                    
+                    if escalation:
+                        return f"🚨 ESCALATION RECOMMENDED\nRisk Score: {risk_score}\nRisk Factors: {risk_factors}\nNegative Sentiments: {negative_count}\nCompliance Violations: {compliance_count}\nComplaint Intents: {complaint_count}\nRecommendation: {recommendation}"
+                    else:
+                        return f"✅ No escalation needed\nRisk Score: {risk_score}\nRecommendation: {recommendation}"
+                return "No escalation data found"
+            except Exception as e:
+                return f"Error identifying escalation triggers: {e}"
+        
         # Create tools list
         tools = [
             get_live_call_context,
             search_knowledge_base,
             check_compliance_realtime,
-            get_member_history
+            get_member_history,
+            detect_sentiment,
+            extract_member_intent,
+            identify_escalation_triggers
         ]
         
         # Create agent using new LangChain API
@@ -269,6 +341,9 @@ def create_agent():
     print(f"   - {FUNCTION_SEARCH_KB}")
     print(f"   - {FUNCTION_CHECK_COMPLIANCE}")
     print(f"   - {FUNCTION_GET_MEMBER_HISTORY}")
+    print(f"   - {FUNCTION_DETECT_SENTIMENT}")
+    print(f"   - {FUNCTION_EXTRACT_INTENT}")
+    print(f"   - {FUNCTION_IDENTIFY_ESCALATION}")
     
     # Try databricks-agents first
     if AGENTS_AVAILABLE:
@@ -280,7 +355,10 @@ def create_agent():
                     FUNCTION_GET_CALL_CONTEXT,
                     FUNCTION_SEARCH_KB,
                     FUNCTION_CHECK_COMPLIANCE,
-                    FUNCTION_GET_MEMBER_HISTORY
+                    FUNCTION_GET_MEMBER_HISTORY,
+                    FUNCTION_DETECT_SENTIMENT,
+                    FUNCTION_EXTRACT_INTENT,
+                    FUNCTION_IDENTIFY_ESCALATION
                 ],
                 system_prompt=SYSTEM_PROMPT
             )

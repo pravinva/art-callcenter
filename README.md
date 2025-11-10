@@ -35,6 +35,17 @@ member_analytics.call_center.enriched_transcripts (Silver)
     │ ├─ Intent Detection (general_inquiry, contribution, withdrawal, etc.)
     │ └─ Compliance Detection (financial_advice, guarantee, etc.)
     │
+    │ (Gold Layer DLT Pipeline - Batch Processing)
+    ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    Gold Layer (Batch Post-Call)                 │
+├─────────────────────────────────────────────────────────────────┤
+│  • call_summaries - Post-call summaries with metrics          │
+│  • agent_performance - Daily agent KPIs                         │
+│  • member_interaction_history - Historical member records       │
+│  • daily_call_statistics - Daily aggregated statistics         │
+└─────────────────────────────────────────────────────────────────┘
+    │
     ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                    Real-Time Access Layer                        │
@@ -77,6 +88,17 @@ Databricks Claude Sonnet 4.5 (LLM)
 - **Notebook**: `/Workspace/Users/pravin.varma@databricks.com/art-callcenter/dlt_enrichment_pipeline`
 - **Output Table**: `member_analytics.call_center.enriched_transcripts`
 - **Update Frequency**: Continuous (processes new transcripts as they arrive via streaming)
+
+### 3. **Gold Layer DLT Pipeline** (Batch Post-Call Processing)
+- **Pipeline Name**: `art-callcenter-gold-layer`
+- **Notebook**: `/Workspace/Users/pravin.varma@databricks.com/art-callcenter/dlt_gold_layer_pipeline`
+- **Output Tables**:
+  - `member_analytics.call_center.call_summaries` - Post-call summaries with key metrics
+  - `member_analytics.call_center.agent_performance` - Daily agent performance KPIs
+  - `member_analytics.call_center.member_interaction_history` - Historical member interaction records
+  - `member_analytics.call_center.daily_call_statistics` - Daily aggregated call center statistics
+- **Update Frequency**: Batch (runs hourly via scheduled job)
+- **Purpose**: Process completed calls and generate analytics, summaries, and historical records
 
 #### Processing Logic
 
@@ -462,17 +484,106 @@ Quick test:
 
 1. **Mock Data Only**: Currently uses generated mock data (not connected to real Genesys Cloud)
 2. **KB Stub**: Knowledge base search returns sample data (requires `knowledge_base.kb_articles` table)
-3. **Member History Stub**: Member history returns sample data (requires `member_data.interaction_history` table)
-4. **Streamlit Single-Threaded**: UI may briefly freeze during AI processing (mitigated with placeholders)
+3. **Streamlit Single-Threaded**: UI may briefly freeze during AI processing (mitigated with placeholders)
+
+## Batch Post-Call Processing (Gold Layer)
+
+The system includes comprehensive batch post-call processing that runs on a schedule to process completed calls:
+
+### Gold Layer Tables
+
+1. **`call_summaries`** - Post-call summaries with:
+   - Call duration, sentiment breakdown, intent categories
+   - Compliance violations and severity
+   - Full transcript and call summary text
+   - Member information and call metadata
+
+2. **`agent_performance`** - Daily agent KPIs:
+   - Total calls, average call duration
+   - Sentiment rates (positive/negative/neutral)
+   - Compliance rates and violation counts
+   - Performance score (weighted composite metric)
+   - Calls per hour, unique intents handled
+
+3. **`member_interaction_history`** - Historical member records:
+   - One record per completed call
+   - Interaction date, topic, sentiment
+   - Call duration, compliance status
+   - Used by `get_member_history()` UC function
+
+4. **`daily_call_statistics`** - Daily aggregated statistics:
+   - Total calls, active agents, unique members
+   - Sentiment distribution, compliance rates
+   - Intent and scenario distributions
+   - Complexity breakdown
+
+### Scheduled Batch Job
+
+- **Job Name**: `art-callcenter-gold-layer-batch`
+- **Schedule**: Runs hourly (configurable)
+- **Pipeline**: `art-callcenter-gold-layer`
+- **Purpose**: Process completed calls and generate analytics
+
+### Deployment
+
+1. **Deploy Gold Layer Pipeline**:
+   ```bash
+   python scripts/09_deploy_gold_layer_pipeline.py
+   ```
+
+2. **Create Scheduled Job**:
+   ```bash
+   python scripts/10_create_batch_job.py
+   ```
+
+3. **Monitor**: Check pipeline runs in Databricks UI under Workflows → Delta Live Tables
+
+### Use Cases
+
+- **Agent Performance Monitoring**: Track agent KPIs and identify training needs
+- **Member History**: View complete interaction history for members
+- **Call Analytics**: Analyze call patterns, sentiment trends, compliance rates
+- **Reporting**: Generate daily/weekly/monthly reports from Gold layer tables
+- **Historical Analysis**: Query historical data for trends and insights
+
+## Analytics Dashboard
+
+A comprehensive Streamlit dashboard for visualizing Gold layer analytics and insights.
+
+### Features
+
+1. **Overview Tab**: Key metrics, recent call summaries, and high-level statistics
+2. **Agent Performance Tab**: Top performing agents, performance scores, compliance rates
+3. **Call Summaries Tab**: Filterable call summaries with sentiment and compliance filters
+4. **Daily Statistics Tab**: Daily call volume trends, sentiment rates, and compliance metrics
+
+### Running the Dashboard
+
+```bash
+# Option 1: Using the run script
+./run_analytics_dashboard.sh
+
+# Option 2: Direct Streamlit command
+streamlit run app/analytics_dashboard.py --server.port 8521
+```
+
+The dashboard will be available at `http://localhost:8521`
+
+### Dashboard Features
+
+- **Real-time Data**: Queries Gold layer tables directly (5-minute cache)
+- **Interactive Filters**: Filter by date range, sentiment, compliance status, and intent
+- **Visualizations**: Charts for call volume, sentiment trends, and performance metrics
+- **Agent Search**: Look up specific agent performance metrics
+- **Summary Statistics**: Key metrics and KPIs at a glance
 
 ## Future Enhancements
 
 - [ ] Connect to real Genesys Cloud API
 - [ ] Populate knowledge base with real ART policies
-- [ ] Integrate member history from CRM system
 - [ ] Add multi-language support
-- [ ] Implement agent performance analytics
 - [ ] Add supervisor dashboard for call monitoring
+- [ ] Add real-time dashboards for Gold layer analytics ✅ (Analytics Dashboard implemented)
 
 ## License
 
