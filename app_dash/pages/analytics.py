@@ -4,6 +4,12 @@ Dash page for analytics and reporting
 """
 from dash import html, dcc, Input, Output, State
 import dash_bootstrap_components as dbc
+import sys
+from pathlib import Path
+
+# Add parent directory to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
 from app_dash.utils.analytics_data import (
     get_overview_metrics, get_recent_call_summaries, get_agent_performance,
     get_agent_by_id, get_call_summaries_filtered, get_daily_statistics

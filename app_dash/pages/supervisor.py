@@ -4,6 +4,12 @@ Dash page for supervisor monitoring and escalations
 """
 from dash import html, dcc, Input, Output, State
 import dash_bootstrap_components as dbc
+import sys
+from pathlib import Path
+
+# Add parent directory to path
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
 from app_dash.utils.supervisor_data import (
     get_all_active_calls, get_calls_with_escalations_batch, get_escalation_summary
 )
