@@ -28,7 +28,7 @@ def _is_cache_valid(cache_key: str, ttl_seconds: int) -> bool:
     return elapsed < ttl_seconds
 
 def get_active_calls() -> List[tuple]:
-    """Get active calls from last 10 minutes"""
+    """Get active calls from last 30 minutes (increased from 10)"""
     cache_key = "active_calls"
     ttl = 10  # 10 seconds
     
@@ -44,10 +44,10 @@ def get_active_calls() -> List[tuple]:
         MIN(timestamp) as call_start,
         COUNT(*) as utterances
     FROM {ENRICHED_TABLE}
-    WHERE timestamp > CURRENT_TIMESTAMP() - INTERVAL 10 MINUTE
+    WHERE timestamp > CURRENT_TIMESTAMP() - INTERVAL 30 MINUTE
     GROUP BY call_id, member_name, member_id, scenario
     ORDER BY call_start DESC
-    LIMIT 20
+    LIMIT 50
     """
     
     results = execute_sql(query, SQL_WAREHOUSE_ID, return_dataframe=False)

@@ -26,6 +26,10 @@ from app_dash.components.member_info import create_member_info_display
 from app_dash.components.kb_search import create_kb_results_display
 from app_dash.components.compliance import create_compliance_alerts_display
 
+# Import page layouts
+from app_dash.pages.supervisor import create_supervisor_layout, register_supervisor_callbacks
+from app_dash.pages.analytics import create_analytics_layout, register_analytics_callbacks
+
 # ART Brand Colors
 ART_PRIMARY_BLUE = "#0051FF"
 ART_DARK_BLUE = "#0033CC"
@@ -144,8 +148,8 @@ def create_header():
 
 # Sidebar component
 def create_sidebar():
-    """Create sidebar with call selection"""
-    return dbc.Offcanvas([
+    """Create sidebar with call selection - persistent sidebar (not Offcanvas)"""
+    return html.Div([
         html.H3("📞 Active Calls", className="mb-3"),
         
         # Call selection dropdown
@@ -167,32 +171,41 @@ def create_sidebar():
         html.Div([
             html.P("System Online", style={"margin": 0})
         ])
-    ], id="sidebar", title="Call Selection", is_open=True, placement="start")
+    ], style={
+        "padding": "1.5rem",
+        "backgroundColor": "#FFFFFF",
+        "borderRight": "1px solid #E0E0E0",
+        "height": "100%",
+        "minHeight": "calc(100vh - 200px)"
+    })
 
 # Main layout
 app.layout = html.Div([
+    # URL routing
+    dcc.Location(id='url', refresh=False),
+    
     # State stores
     *state_manager.create_stores(),
     
     # Header
     create_header(),
     
-    # Main content area
-    dbc.Container([
-        dbc.Row([
-            # Sidebar column
-            dbc.Col([
-                create_sidebar()
-            ], width=3),
-            
-            # Main content column
-            dbc.Col([
-                html.Div(id="main-content", children=[
-                    html.H4("Select a call from the sidebar to begin")
-                ])
-            ], width=9)
-        ])
-    ], fluid=True),
+    # Navigation bar
+    dbc.NavbarSimple(
+        children=[
+            dbc.NavItem(dbc.NavLink("📞 Live Agent", href="/", active="exact")),
+            dbc.NavItem(dbc.NavLink("👔 Supervisor", href="/supervisor", active="exact")),
+            dbc.NavItem(dbc.NavLink("📊 Analytics", href="/analytics", active="exact")),
+        ],
+        brand="ART Call Center",
+        brand_href="/",
+        color="primary",
+        dark=True,
+        className="mb-3"
+    ),
+    
+    # Main content area - will be updated by routing callback
+    html.Div(id="page-content"),
     
     # Interval for auto-refresh
     dcc.Interval(
@@ -286,7 +299,7 @@ def update_selected_call_id(selected_call_id):
     prevent_initial_call=True
 )
 def update_main_content(selected_call_id):
-    """Update main content area when call is selected"""
+    """Update main content area when call is selected - sidebar stays visible"""
     if not selected_call_id:
         return html.H4("Select a call from the sidebar to begin")
     
@@ -566,6 +579,43 @@ def update_compliance_alerts(selected_call_id, n_intervals):
 def update_active_tab(active_tab):
     """Track which tab is active"""
     return active_tab
+
+# Routing callback - display different pages based on URL
+@app.callback(
+    Output('page-content', 'children'),
+    Input('url', 'pathname')
+)
+def display_page(pathname):
+    """Route to different pages based on URL"""
+    if pathname == '/supervisor':
+        return create_supervisor_layout()
+    elif pathname == '/analytics':
+        return create_analytics_layout()
+    else:
+        # Default: Agent dashboard
+        return dbc.Container([
+            dbc.Row([
+                # Sidebar column
+                dbc.Col([
+                    create_sidebar()
+                ], width=3),
+                
+                # Main content column
+                dbc.Col([
+                    html.Div(id="main-content", children=[
+                        html.H4("Select a call from the sidebar to begin")
+                    ])
+                ], width=9)
+            ])
+        ], fluid=True)
+
+# Register page callbacks (only if pages are imported successfully)
+try:
+    register_supervisor_callbacks(app)
+    register_analytics_callbacks(app)
+except NameError:
+    # Pages not imported - skip callback registration
+    pass
 
 if __name__ == '__main__':
     app.run(debug=False, port=8050, host='127.0.0.1')

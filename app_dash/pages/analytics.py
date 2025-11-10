@@ -208,6 +208,13 @@ def register_analytics_callbacks(app):
         try:
             daily_df = get_daily_statistics(days=30)
             
+            # Fix DataFrame boolean check
+            if daily_df is None or (hasattr(daily_df, 'empty') and daily_df.empty):
+                return html.Div([
+                    html.H3("Daily Call Statistics", className="mb-4"),
+                    dbc.Alert("No daily statistics data available", color="info")
+                ]), []
+            
             content = html.Div([
                 html.H3("Daily Call Statistics", className="mb-4"),
                 create_daily_stats_chart(daily_df),
@@ -215,7 +222,7 @@ def register_analytics_callbacks(app):
                 create_call_summaries_table(daily_df)  # Reuse table component
             ])
             
-            return content, daily_df.to_dict('records') if daily_df is not None and not daily_df.empty else []
+            return content, daily_df.to_dict('records')
         except Exception as e:
             return ErrorAlert(f"Error loading daily statistics: {e}"), None
 
