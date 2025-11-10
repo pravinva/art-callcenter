@@ -139,10 +139,22 @@ app.index_string = '''
             /* Header styling - ART Brand */
             .header-container {
                 background: linear-gradient(135deg, #0051FF 0%, #3385FF 100%);
-                padding: 2rem 2.5rem;
+                padding: 1.5rem 2.5rem;
                 color: white;
                 margin-bottom: 0;
                 box-shadow: 0 2px 8px rgba(0, 81, 255, 0.15);
+                width: 100%;
+            }
+            
+            .header-container img {
+                display: block !important;
+                visibility: visible !important;
+            }
+            
+            #art-logo {
+                display: block !important;
+                visibility: visible !important;
+                height: 60px !important;
             }
             
             .header-container h2 {
@@ -317,7 +329,7 @@ app.index_string = '''
 
 # Header component
 def create_header():
-    """Create application header"""
+    """Create application header with logo prominently displayed"""
     logo_path = Path(__file__).parent.parent / "logo.svg"
     assets_logo_path = Path(__file__).parent / "assets" / "logo.svg"
     
@@ -334,62 +346,85 @@ def create_header():
     # Check if logo exists
     logo_exists = assets_logo_path.exists()
     
-    # Try multiple approaches for logo display
+    # Create logo image - always try to show if file exists
     logo_img = None
     if logo_exists:
-        # Method 1: Use assets folder (Dash default)
-        logo_src = "/assets/logo.svg"
-        
-        # Also try embedding as data URI as fallback
         try:
             import base64
             with open(assets_logo_path, 'rb') as f:
                 svg_data = f.read()
             svg_base64 = base64.b64encode(svg_data).decode('utf-8')
             data_uri = f'data:image/svg+xml;base64,{svg_base64}'
-            # Use data URI for more reliable display
+            # Use data URI for reliable display
             logo_img = html.Img(
                 src=data_uri,
+                id="art-logo",
                 style={
-                    "height": "50px", 
-                    "marginRight": "1rem",
-                    "maxWidth": "200px",
-                    "objectFit": "contain"
+                    "height": "60px", 
+                    "marginRight": "1.5rem",
+                    "maxWidth": "250px",
+                    "objectFit": "contain",
+                    "display": "block",
+                    "verticalAlign": "middle"
                 },
-                alt="ART Logo"
+                alt="Australian Retirement Trust Logo"
             )
         except Exception as e:
             print(f"Error creating data URI logo: {e}")
             # Fallback to regular path
+            logo_src = "/assets/logo.svg"
             logo_img = html.Img(
                 src=logo_src,
+                id="art-logo",
                 style={
-                    "height": "50px", 
-                    "marginRight": "1rem",
-                    "maxWidth": "200px",
-                    "objectFit": "contain"
+                    "height": "60px", 
+                    "marginRight": "1.5rem",
+                    "maxWidth": "250px",
+                    "objectFit": "contain",
+                    "display": "block",
+                    "verticalAlign": "middle"
                 },
-                alt="ART Logo"
+                alt="Australian Retirement Trust Logo"
             )
     
+    # Header content with logo prominently displayed
+    header_content = []
+    
+    if logo_img:
+        header_content.append(logo_img)
+    
+    header_content.append(
+        html.H2("ART Live Agent Assist", style={
+            "color": "white", 
+            "margin": 0,
+            "fontFamily": "'Montserrat', sans-serif",
+            "fontWeight": "700",
+            "fontSize": "1.75rem",
+            "letterSpacing": "-0.01em",
+            "display": "inline-block",
+            "verticalAlign": "middle"
+        })
+    )
+    
     return html.Div([
-        dbc.Row([
-            dbc.Col([
-                logo_img if logo_img else html.Div(),
-                html.H2("ART Live Agent Assist", style={
-                    "color": "white", 
-                    "margin": 0,
-                    "fontFamily": "'Montserrat', sans-serif",
-                    "fontWeight": "700",
-                    "fontSize": "1.75rem",
-                    "letterSpacing": "-0.01em"
-                })
-            ], width="auto"),
-            dbc.Col([
-                StatusIndicator(is_online=True)
-            ], width="auto", className="ms-auto")
-        ], align="center")
-    ], className="header-container")
+        dbc.Container([
+            dbc.Row([
+                dbc.Col([
+                    html.Div(
+                        header_content,
+                        style={
+                            "display": "flex",
+                            "alignItems": "center",
+                            "flexWrap": "wrap"
+                        }
+                    )
+                ], width="auto"),
+                dbc.Col([
+                    StatusIndicator(is_online=True)
+                ], width="auto", className="ms-auto")
+            ], align="center", className="g-0")
+        ], fluid=True)
+    ], className="header-container", style={"width": "100%"})
 
 # Sidebar component
 def create_sidebar():
