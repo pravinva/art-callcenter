@@ -114,20 +114,6 @@ def execute_sql(query: str, max_rows: int = 1000):
                     
                     # Convert to DataFrame
                     df = pd.DataFrame(status.result.data_array[:max_rows], columns=columns)
-                    
-                    # Convert numeric columns to proper types
-                    # Common numeric column patterns
-                    numeric_patterns = ['duration', 'minutes', 'rate', 'count', 'total', 'avg', 'score', 'percent']
-                    for col in df.columns:
-                        col_lower = col.lower()
-                        if any(pattern in col_lower for pattern in numeric_patterns):
-                            try:
-                                # Try to convert to numeric, coercing errors to NaN
-                                df[col] = pd.to_numeric(df[col], errors='coerce')
-                            except Exception:
-                                # If conversion fails, leave as is
-                                pass
-                    
                     return df
                 else:
                     return pd.DataFrame()
@@ -371,13 +357,8 @@ with tab3:
                 st.metric("Compliance Issues", f"{compliance_count} ({compliance_count/len(call_summaries)*100:.1f}%)")
         with col4:
             if 'call_duration_minutes' in call_summaries.columns:
-                # Ensure numeric type and handle NaN values
-                duration_col = pd.to_numeric(call_summaries['call_duration_minutes'], errors='coerce')
-                avg_duration = duration_col.mean()
-                if pd.isna(avg_duration):
-                    st.metric("Avg Duration (min)", "N/A")
-                else:
-                    st.metric("Avg Duration (min)", f"{avg_duration:.2f}")
+                avg_duration = call_summaries['call_duration_minutes'].mean()
+                st.metric("Avg Duration (min)", f"{avg_duration:.2f}")
     else:
         st.info("No call summaries match the selected filters")
 
@@ -427,40 +408,24 @@ with tab4:
         col1, col2, col3, col4 = st.columns(4)
         
         if 'total_calls' in daily_stats.columns:
-            calls_col = pd.to_numeric(daily_stats['total_calls'], errors='coerce')
-            total_calls_7d = calls_col.sum()
+            total_calls_7d = daily_stats['total_calls'].sum()
             with col1:
-                if pd.isna(total_calls_7d):
-                    st.metric("Total Calls (7d)", "N/A")
-                else:
-                    st.metric("Total Calls (7d)", f"{int(total_calls_7d):,}")
+                st.metric("Total Calls (7d)", f"{int(total_calls_7d):,}")
         
         if 'active_agents' in daily_stats.columns:
-            agents_col = pd.to_numeric(daily_stats['active_agents'], errors='coerce')
-            avg_agents = agents_col.mean()
+            avg_agents = daily_stats['active_agents'].mean()
             with col2:
-                if pd.isna(avg_agents):
-                    st.metric("Avg Active Agents", "N/A")
-                else:
-                    st.metric("Avg Active Agents", f"{int(avg_agents):,}")
+                st.metric("Avg Active Agents", f"{int(avg_agents):,}")
         
         if 'positive_sentiment_rate' in daily_stats.columns:
-            positive_col = pd.to_numeric(daily_stats['positive_sentiment_rate'], errors='coerce')
-            avg_positive = positive_col.mean()
+            avg_positive = daily_stats['positive_sentiment_rate'].mean()
             with col3:
-                if pd.isna(avg_positive):
-                    st.metric("Avg Positive Rate", "N/A")
-                else:
-                    st.metric("Avg Positive Rate", f"{avg_positive:.1f}%")
+                st.metric("Avg Positive Rate", f"{avg_positive:.1f}%")
         
         if 'compliance_rate' in daily_stats.columns:
-            compliance_col = pd.to_numeric(daily_stats['compliance_rate'], errors='coerce')
-            avg_compliance = compliance_col.mean()
+            avg_compliance = daily_stats['compliance_rate'].mean()
             with col4:
-                if pd.isna(avg_compliance):
-                    st.metric("Avg Compliance Rate", "N/A")
-                else:
-                    st.metric("Avg Compliance Rate", f"{avg_compliance:.1f}%")
+                st.metric("Avg Compliance Rate", f"{avg_compliance:.1f}%")
     else:
         st.info("No daily statistics available")
 

@@ -71,6 +71,14 @@ MEMBER_HISTORY_TABLE = f"{CATALOG_NAME}.{SCHEMA_NAME}.member_interaction_history
 DAILY_STATS_TABLE = f"{CATALOG_NAME}.{SCHEMA_NAME}.daily_call_statistics"
 
 # ============================================================================
+# Vector Search Configuration
+# ============================================================================
+VECTOR_SEARCH_ENDPOINT = "one-env-shared-endpoint-10"
+KB_TABLE = f"{CATALOG_NAME}.knowledge_base.kb_articles"
+KB_INDEX_NAME = f"{CATALOG_NAME}.knowledge_base.kb_articles_index"
+EMBEDDING_MODEL = "databricks-gte-large-en"
+
+# ============================================================================
 # UC Function Names
 # ============================================================================
 FUNCTION_GET_CALL_CONTEXT = f"{CATALOG_NAME}.{SCHEMA_NAME}.get_live_call_context"

@@ -1,6 +1,7 @@
 # Core Databricks SDK
 databricks-sdk>=0.40.0
 databricks-sql-connector>=3.0.0
+databricks-vectorsearch>=0.60.0  # Vector Search client for local testing
 
 # Zerobus SDK - install from GitHub
 # pip install git+https://github.com/databricks/zerobus-sdk-py.git

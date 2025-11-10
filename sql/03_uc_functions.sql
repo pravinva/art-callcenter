@@ -28,19 +28,30 @@ FROM (
 )
 GROUP BY member_name;
 
--- Function 2: Search knowledge base (stub - requires kb_articles table)
--- Note: Create knowledge_base.kb_articles table separately if needed
+-- Function 2: Search knowledge base (queries actual kb_articles table)
 CREATE OR REPLACE FUNCTION member_analytics.call_center.search_knowledge_base(search_query STRING)
 RETURNS TABLE (
     article_id STRING,
     title STRING,
-    content STRING
+    content STRING,
+    category STRING
 )
 RETURN SELECT 
-    CAST('KB-001' AS STRING) as article_id,
-    CAST('Sample Article' AS STRING) as title,
-    CAST('Sample content for ' || search_query AS STRING) as content
-LIMIT 3;
+    article_id,
+    title,
+    content,
+    category
+FROM member_analytics.knowledge_base.kb_articles
+WHERE 
+    LOWER(title) LIKE '%' || LOWER(search_query) || '%'
+    OR LOWER(content) LIKE '%' || LOWER(search_query) || '%'
+ORDER BY 
+    CASE 
+        WHEN LOWER(title) LIKE '%' || LOWER(search_query) || '%' THEN 1
+        ELSE 2
+    END,
+    helpful_count DESC
+LIMIT 5;
 
 -- Function 3: Check compliance in real-time
 CREATE OR REPLACE FUNCTION member_analytics.call_center.check_compliance_realtime(call_id_param STRING)
