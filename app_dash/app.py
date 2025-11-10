@@ -115,29 +115,61 @@ def create_header():
     logo_path = Path(__file__).parent.parent / "logo.svg"
     assets_logo_path = Path(__file__).parent / "assets" / "logo.svg"
     
-    # Check both locations
-    logo_exists = logo_path.exists() or assets_logo_path.exists()
+    # Ensure assets folder exists and logo is copied
+    assets_dir = Path(__file__).parent / "assets"
+    assets_dir.mkdir(exist_ok=True)
     
-    # Use assets folder logo if available, otherwise try root
-    if assets_logo_path.exists():
+    # Copy logo to assets if not already there or if root logo is newer
+    if logo_path.exists():
+        if not assets_logo_path.exists() or logo_path.stat().st_mtime > assets_logo_path.stat().st_mtime:
+            import shutil
+            shutil.copy(logo_path, assets_logo_path)
+    
+    # Check if logo exists
+    logo_exists = assets_logo_path.exists()
+    
+    # Try multiple approaches for logo display
+    logo_img = None
+    if logo_exists:
+        # Method 1: Use assets folder (Dash default)
         logo_src = "/assets/logo.svg"
-    elif logo_path.exists():
-        # Copy to assets if not already there
-        import shutil
-        assets_dir = Path(__file__).parent / "assets"
-        assets_dir.mkdir(exist_ok=True)
-        shutil.copy(logo_path, assets_logo_path)
-        logo_src = "/assets/logo.svg"
-    else:
-        logo_src = ""
+        
+        # Also try embedding as data URI as fallback
+        try:
+            import base64
+            with open(assets_logo_path, 'rb') as f:
+                svg_data = f.read()
+            svg_base64 = base64.b64encode(svg_data).decode('utf-8')
+            data_uri = f'data:image/svg+xml;base64,{svg_base64}'
+            # Use data URI for more reliable display
+            logo_img = html.Img(
+                src=data_uri,
+                style={
+                    "height": "50px", 
+                    "marginRight": "1rem",
+                    "maxWidth": "200px",
+                    "objectFit": "contain"
+                },
+                alt="ART Logo"
+            )
+        except Exception as e:
+            print(f"Error creating data URI logo: {e}")
+            # Fallback to regular path
+            logo_img = html.Img(
+                src=logo_src,
+                style={
+                    "height": "50px", 
+                    "marginRight": "1rem",
+                    "maxWidth": "200px",
+                    "objectFit": "contain"
+                },
+                alt="ART Logo"
+            )
     
     return html.Div([
         dbc.Row([
             dbc.Col([
-                html.Img(
-                    src=logo_src,
-                    style={"height": "50px", "marginRight": "1rem"} if logo_exists else {"display": "none"}
-                ) if logo_exists else html.Div(),
+                logo_img if logo_img else html.Div(),
                 html.H2("ART Live Agent Assist", style={"color": "white", "margin": 0})
             ], width="auto"),
             dbc.Col([
