@@ -4,8 +4,8 @@ Testing Utilities for Dash Application
 import sys
 from pathlib import Path
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add parent directory to path (go up two levels from tests/)
+sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 def test_imports():
     """Test that all imports work correctly"""
