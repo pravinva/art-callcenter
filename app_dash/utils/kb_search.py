@@ -10,127 +10,129 @@ from config.config import (
 )
 
 def get_suggested_kb_questions(call_id: str) -> List[str]:
-    """Get suggested KB questions based on call context - always returns at least 5 questions"""
+    """Get suggested KB questions STRICTLY based on call scenario - returns scenario-specific questions only"""
     try:
-        # Get call context to understand scenario, intent, and sentiment
+        # Get the primary scenario for this call
         query = f"""
-        SELECT DISTINCT 
+        SELECT 
             scenario,
-            intent_category,
-            sentiment,
             COUNT(*) as count
         FROM {ENRICHED_TABLE}
         WHERE call_id = '{call_id}'
-        GROUP BY scenario, intent_category, sentiment
+        GROUP BY scenario
         ORDER BY count DESC
-        LIMIT 10
+        LIMIT 1
         """
         results = execute_sql(query, SQL_WAREHOUSE_ID, return_dataframe=True)
         
-        suggestions = []
-        seen = set()
-        has_negative_sentiment = False
-        has_complaint = False
-        
-        # Process results if available
-        if results is not None and not results.empty:
-            for _, row in results.iterrows():
-                scenario = str(row.get('scenario', '')).lower()
-                intent = str(row.get('intent_category', '')).lower()
-                sentiment = str(row.get('sentiment', '')).lower()
-                
-                # Check for negative sentiment
-                if sentiment == 'negative':
-                    has_negative_sentiment = True
-                
-                # Check for complaint intent
-                if 'complaint' in intent or 'complaint' in scenario:
-                    has_complaint = True
-                
-                # Scenario-based suggestions
-                if 'withdrawal' in scenario or 'withdrawal' in intent:
-                    suggestions.extend([
-                        "What are the requirements for compassionate grounds withdrawal?",
-                        "How do I apply for financial hardship withdrawal?",
-                        "What is early access super?"
-                    ])
-                elif 'contribution' in scenario or 'contribution' in intent:
-                    suggestions.extend([
-                        "What are the contribution caps?",
-                        "How do employer contributions work?",
-                        "What are non-concessional contributions?"
-                    ])
-                elif 'insurance' in scenario or 'insurance' in intent:
-                    suggestions.extend([
-                        "What insurance coverage do I have?",
-                        "How do I make an insurance claim?",
-                        "What is TPD insurance?"
-                    ])
-                elif 'investment' in scenario or 'investment' in intent:
-                    suggestions.extend([
-                        "What investment options are available?",
-                        "How is investment performance calculated?",
-                        "How do I switch investments?"
-                    ])
-        
-        # Add negative sentiment/complaint questions if detected (priority)
-        if has_negative_sentiment or has_complaint:
-            complaint_questions = [
+        # Map scenarios to specific questions - STRICT scenario-based mapping
+        scenario_question_map = {
+            'contribution_inquiry': [
+                "What are the contribution caps?",
+                "How do employer contributions work?",
+                "What are non-concessional contributions?",
+                "What are concessional contributions?",
+                "How do I make additional contributions?",
+                "What are the catch-up contribution rules?",
+                "What is the superannuation guarantee rate?",
+                "How do salary sacrifice contributions work?"
+            ],
+            'withdrawal_compassionate': [
+                "What are the requirements for compassionate grounds withdrawal?",
+                "How do I apply for financial hardship withdrawal?",
+                "What is early access super?",
+                "What documents do I need for compassionate withdrawal?",
+                "How long does withdrawal approval take?",
+                "What are the withdrawal conditions?",
+                "What are the eligibility criteria for early release?",
+                "How do I apply for early access due to financial hardship?"
+            ],
+            'insurance_inquiry': [
+                "What insurance coverage do I have?",
+                "How do I make an insurance claim?",
+                "What is TPD insurance?",
+                "What is death insurance coverage?",
+                "How do I update my insurance beneficiaries?",
+                "What are the insurance premiums?",
+                "What is income protection insurance?",
+                "How do I cancel my insurance?"
+            ],
+            'performance_inquiry': [
+                "What investment options are available?",
+                "How is investment performance calculated?",
+                "How do I switch investments?",
+                "What are the historical returns?",
+                "What are the investment fees?",
+                "How do I check my investment performance?",
+                "What is the default investment option?",
+                "How do I change my investment strategy?"
+            ],
+            'beneficiary_update': [
+                "How do I update my beneficiaries?",
+                "What information do I need to update beneficiaries?",
+                "Can I have multiple beneficiaries?",
+                "How do I remove a beneficiary?",
+                "What happens if I don't have a beneficiary?",
+                "What percentage can I allocate to each beneficiary?",
+                "How do I add a new beneficiary?"
+            ],
+            'complaint_handling': [
                 "What's the complaint process?",
                 "What's the dispute resolution mechanism?",
                 "How do I file a formal complaint?",
                 "What are my rights if I'm not satisfied with service?",
-                "How long does complaint resolution take?"
+                "How long does complaint resolution take?",
+                "What happens after I submit a complaint?",
+                "Can I escalate my complaint if I'm not satisfied?",
+                "What is the internal dispute resolution process?"
+            ],
+            'compliance_violations': [
+                "What are the compliance requirements?",
+                "What happens if there's a compliance issue?",
+                "How are compliance violations handled?",
+                "What are my rights regarding compliance?",
+                "How do I report a compliance concern?",
+                "What are the consequences of non-compliance?",
+                "How is compliance monitored?"
+            ],
+            'general_inquiry': [
+                "How do I check my account balance?",
+                "How do I update my personal details?",
+                "What are the superannuation rules?",
+                "How do I access my account online?",
+                "What are the fees and charges?",
+                "How do I contact customer service?",
+                "What is my member number?",
+                "How do I reset my password?"
             ]
-            for q in complaint_questions:
-                if q not in seen:
-                    suggestions.insert(0, q)  # Add at beginning for priority
-                    seen.add(q)
+        }
         
-        # Remove duplicates while preserving order
-        unique_suggestions = []
-        for s in suggestions:
-            if s not in seen:
-                seen.add(s)
-                unique_suggestions.append(s)
+        # Get primary scenario
+        primary_scenario = None
+        if results is not None and not results.empty:
+            primary_scenario = str(results.iloc[0].get('scenario', '')).strip()
         
-        # ALWAYS ensure we have at least 5 questions - use defaults if needed
-        default_questions = [
-            "What are the contribution caps?",
-            "How do I make a withdrawal?",
-            "What insurance coverage do I have?",
-            "How do I update my personal details?",
-            "What are my investment options?",
-            "What's the complaint process?",
-            "What's the dispute resolution mechanism?",
-            "How do I check my account balance?",
-            "What are the superannuation rules?",
-            "How do I change my investment strategy?"
-        ]
+        # Return questions STRICTLY for the detected scenario
+        if primary_scenario and primary_scenario in scenario_question_map:
+            questions = scenario_question_map[primary_scenario]
+            # Return top 5-7 questions for the scenario
+            return questions[:7] if len(questions) > 7 else questions
         
-        # Fill remaining slots with defaults if we don't have enough
-        for default_q in default_questions:
-            if len(unique_suggestions) >= 5:
-                break
-            if default_q not in seen:
-                unique_suggestions.append(default_q)
-                seen.add(default_q)
-        
-        # If still empty (shouldn't happen), return defaults
-        if not unique_suggestions:
-            unique_suggestions = default_questions[:5]
-        
-        return unique_suggestions[:5]  # Return top 5
+        # If scenario not found or not mapped, return general questions
+        print(f"⚠️ Scenario '{primary_scenario}' not found in map, using general_inquiry questions")
+        return scenario_question_map.get('general_inquiry', [])[:7]
         
     except Exception as e:
         print(f"Error getting suggested KB questions: {e}")
-        # Always return default questions on error
+        import traceback
+        traceback.print_exc()
+        # Return general questions on error
         return [
-            "What are the contribution caps?",
-            "How do I make a withdrawal?",
-            "What insurance coverage do I have?",
-            "What's the complaint process?",
-            "What are my investment options?"
+            "How do I check my account balance?",
+            "How do I update my personal details?",
+            "What are the superannuation rules?",
+            "How do I access my account online?",
+            "What are the fees and charges?"
         ]
 
 def search_kb_vector_search(query: str, num_results: int = 5) -> List[dict]:

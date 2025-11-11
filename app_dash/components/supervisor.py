@@ -16,6 +16,15 @@ def create_escalation_card(call_id: str, escalation_data: dict) -> dbc.Card:
     risk_score = escalation_data.get('risk_score', 0)
     escalation_recommended = escalation_data.get('escalation_recommended', False)
     
+    # Get counts to verify escalation logic
+    negative_count = escalation_data.get('negative_sentiment_count', 0)
+    compliance_count = escalation_data.get('compliance_violations_count', 0)
+    complaint_count = escalation_data.get('complaint_intent_count', 0)
+    
+    # Safety check: If all counts are 0, escalation should be False regardless of what was passed
+    if negative_count == 0 and compliance_count == 0 and complaint_count == 0:
+        escalation_recommended = False
+    
     # Determine severity color
     if risk_score >= 10 or escalation_recommended:
         color = "danger"
@@ -35,11 +44,11 @@ def create_escalation_card(call_id: str, escalation_data: dict) -> dbc.Card:
                 html.Span(str(risk_score), style={"color": border_color, "fontWeight": "bold"})
             ], className="mb-2"),
             html.Div([
-                html.Small(f"Negative Sentiments: {escalation_data.get('negative_sentiment_count', 0)}"),
+                html.Small(f"Negative Sentiments: {negative_count}"),
                 html.Br(),
-                html.Small(f"Compliance Issues: {escalation_data.get('compliance_violations_count', 0)}"),
+                html.Small(f"Compliance Issues: {compliance_count}"),
                 html.Br(),
-                html.Small(f"Complaints: {escalation_data.get('complaint_intent_count', 0)}")
+                html.Small(f"Complaints: {complaint_count}")
             ], className="text-muted"),
             dbc.Badge(
                 "Escalation Recommended" if escalation_recommended else "Monitor",

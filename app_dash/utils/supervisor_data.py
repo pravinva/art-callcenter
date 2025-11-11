@@ -94,12 +94,33 @@ def get_calls_with_escalations_batch(call_ids: List[str]) -> Dict[str, Dict]:
         for _, row in results.iterrows():
             call_id = row.get('call_id')
             if call_id:
+                # Fix: SQL returns string "true"/"false", need to convert properly
+                escalation_val = row.get('escalation_recommended', False)
+                if isinstance(escalation_val, str):
+                    escalation_recommended = escalation_val.lower().strip() == 'true'
+                elif escalation_val is None:
+                    escalation_recommended = False
+                else:
+                    # Handle boolean, int (0/1), etc.
+                    escalation_recommended = bool(escalation_val) if escalation_val not in (0, '0', 'false', False) else False
+                
+                # Get counts
+                negative_count = int(row.get('negative_sentiment_count', 0) or 0)
+                compliance_count = int(row.get('compliance_violations_count', 0) or 0)
+                complaint_count = int(row.get('complaint_intent_count', 0) or 0)
+                risk_score = int(row.get('risk_score', 0) or 0)
+                
+                # Safety check: If all counts are 0, escalation should definitely be False
+                # (even if SQL returned True due to data inconsistency)
+                if negative_count == 0 and compliance_count == 0 and complaint_count == 0:
+                    escalation_recommended = False
+                
                 escalation_dict[call_id] = {
-                    'escalation_recommended': bool(row.get('escalation_recommended', False)),
-                    'risk_score': int(row.get('risk_score', 0) or 0),
-                    'negative_sentiment_count': int(row.get('negative_sentiment_count', 0) or 0),
-                    'compliance_violations_count': int(row.get('compliance_violations_count', 0) or 0),
-                    'complaint_intent_count': int(row.get('complaint_intent_count', 0) or 0)
+                    'escalation_recommended': escalation_recommended,
+                    'risk_score': risk_score,
+                    'negative_sentiment_count': negative_count,
+                    'compliance_violations_count': compliance_count,
+                    'complaint_intent_count': complaint_count
                 }
     
     return escalation_dict

@@ -274,6 +274,17 @@ app.index_string = '''
                 text-overflow: ellipsis !important;
             }
             
+            /* Color dropdown options - styled via JavaScript and CSS */
+            /* CSS fallback for react-select options */
+            .Select-option {
+                position: relative;
+            }
+            
+            /* Try to style based on text content using CSS (limited support) */
+            .Select-option:not([style*="color"]) {
+                /* Default styling - will be overridden by JS */
+            }
+            
             /* Selected value in dropdown */
             .Select-value-label {
                 font-size: 0.8rem !important;
@@ -549,6 +560,16 @@ def create_sidebar():
             
             html.H3("📞 Active Calls", className="mb-3", style={"marginTop": "0"}),
             
+            # Compliance legend
+            html.Div([
+                html.Small([
+                    html.Span("🟢", style={"marginRight": "0.3rem"}),
+                    html.Span("No compliance issues", style={"marginRight": "1rem", "color": "#00A651"}),
+                    html.Span("🔴", style={"marginRight": "0.3rem"}),
+                    html.Span("Compliance issues detected", style={"color": "#DC3545"})
+                ], style={"fontSize": "0.75rem", "color": "#666666", "marginBottom": "0.5rem"})
+            ], style={"marginBottom": "0.5rem", "padding": "0.5rem", "backgroundColor": "#F8F9FA", "borderRadius": "4px"}),
+            
             # Call selection dropdown
             dcc.Dropdown(
                 id="call-selector",
@@ -618,6 +639,12 @@ app.layout = html.Div([
         id='interval-component',
         interval=10*1000,  # 10 seconds
         n_intervals=0
+    ),
+    # Fast interval for enhanced AI suggestion fetching (2 seconds)
+    dcc.Interval(
+        id='enhanced-suggestion-interval',
+        interval=2*1000,  # 2 seconds - faster check for enhanced suggestions
+        n_intervals=0
     )
 ])
 
@@ -626,15 +653,64 @@ app.layout = html.Div([
     Output('call-selector', 'options'),
     Output('store-active-calls', 'data'),
     Input('interval-component', 'n_intervals'),
+    Input('url', 'pathname'),  # Add pathname to check if on agent page
     State('store-active-calls', 'data'),
     prevent_initial_call=False
 )
-def update_active_calls(n_intervals, previous_calls_data):
-    """Update active calls dropdown - only refresh if call list changed"""
+def update_active_calls(n_intervals, pathname, previous_calls_data):
+    """Update active calls dropdown - refresh when returning to agent page or on interval"""
+    # Check which input triggered
+    ctx = callback_context
+    triggered_id = None
+    if ctx.triggered:
+        triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    # If returning to agent page (pathname changed), always load calls
+    if triggered_id == 'url' and pathname in ('/', '/agent'):
+        # Force refresh when returning to agent page
+        previous_calls_data = None
+    
+    # Only update if on agent page (where call-selector exists)
+    if pathname != '/' and pathname != '/agent':
+        raise PreventUpdate
+    
     try:
         calls = get_active_calls()
         
-        # Format options for dropdown
+        # Get compliance data for all calls efficiently
+        call_ids = [call[0] for call in calls] if calls else []
+        compliance_data = {}
+        if call_ids:
+            # Query compliance status for all calls at once
+            from app_dash.utils.databricks_client import execute_sql
+            from config.config import SQL_WAREHOUSE_ID, ENRICHED_TABLE
+            call_ids_str = "', '".join(call_ids)
+            compliance_query = f"""
+            SELECT 
+                call_id,
+                SUM(CASE WHEN compliance_flag != 'ok' THEN 1 ELSE 0 END) as compliance_issues_count,
+                SUM(CASE WHEN compliance_severity = 'CRITICAL' THEN 1 ELSE 0 END) as critical_count,
+                SUM(CASE WHEN compliance_severity = 'HIGH' THEN 1 ELSE 0 END) as high_count
+            FROM {ENRICHED_TABLE}
+            WHERE call_id IN ('{call_ids_str}')
+            GROUP BY call_id
+            """
+            compliance_results = execute_sql(compliance_query, SQL_WAREHOUSE_ID, return_dataframe=True)
+            
+            if compliance_results is not None and not compliance_results.empty:
+                for _, row in compliance_results.iterrows():
+                    call_id = row.get('call_id')
+                    issues_count = int(row.get('compliance_issues_count', 0) or 0)
+                    critical_count = int(row.get('critical_count', 0) or 0)
+                    high_count = int(row.get('high_count', 0) or 0)
+                    compliance_data[call_id] = {
+                        'issues_count': issues_count,
+                        'critical_count': critical_count,
+                        'high_count': high_count,
+                        'has_high_compliance': (issues_count > 0) or (critical_count > 0) or (high_count > 0)
+                    }
+        
+        # Format options for dropdown with compliance indicators
         options = []
         calls_data = []
         
@@ -642,46 +718,101 @@ def update_active_calls(n_intervals, previous_calls_data):
             call_id = call[0]
             member_name = call[1]
             scenario = call[3]
-            utterances = call[5] if len(call) > 5 else 0
+            # utterances is now at index 6 (after call_start and last_activity)
+            utterances = call[6] if len(call) > 6 else (call[5] if len(call) > 5 else 0)
             
-            label = f"{member_name} ({call_id[-8:]})"
-            options.append({"label": label, "value": call_id})
+            # Get compliance status for this call
+            compliance_info = compliance_data.get(call_id, {'has_high_compliance': False, 'issues_count': 0})
+            has_compliance_issues = compliance_info.get('has_high_compliance', False)
+            
+            # Add visual indicator based on compliance status
+            # Use HTML with inline styles for colored text
+            if has_compliance_issues:
+                # High compliance issues - use red indicator with colored text
+                indicator = "🔴"
+                # Use HTML span for colored text (Dash supports HTML in labels)
+                label = html.Span([
+                    html.Span("🔴 ", style={"color": "#DC3545", "fontWeight": "bold"}),
+                    html.Span(f"{member_name} ({call_id[-8:]})", style={"color": "#DC3545"})
+                ])
+            else:
+                # No compliance issues - use green indicator
+                indicator = "🟢"
+                # Use HTML span for colored text
+                label = html.Span([
+                    html.Span("🟢 ", style={"color": "#00A651", "fontWeight": "bold"}),
+                    html.Span(f"{member_name} ({call_id[-8:]})", style={"color": "#00A651"})
+                ])
+            
+            # Use plain text with emoji - JavaScript will add colors
+            label_text = f"{indicator} {member_name} ({call_id[-8:]})"
+            options.append({"label": label_text, "value": call_id})
             calls_data.append({
                 "call_id": call_id,
                 "member_name": member_name,
                 "scenario": scenario,
-                "utterances": utterances
+                "utterances": utterances,
+                "has_compliance_issues": has_compliance_issues,
+                "compliance_issues_count": compliance_info.get('issues_count', 0)
             })
         
         # Compare with previous data - only update if changed
-        if previous_calls_data:
+        # But always update if returning to agent page (triggered by pathname change)
+        # Skip comparison if we're forcing a refresh (returning to page)
+        if previous_calls_data and triggered_id != 'url':
             previous_call_ids = {c.get('call_id') for c in previous_calls_data}
             current_call_ids = {c.get('call_id') for c in calls_data}
             
-            # If call IDs are the same, prevent update
+            # If call IDs are the same and not returning to page, prevent update
             if previous_call_ids == current_call_ids:
                 raise PreventUpdate
         
+        # Always return options and data, even if empty (so restore callback can work)
         return options, calls_data
     except PreventUpdate:
         raise
     except Exception as e:
         print(f"Error fetching active calls: {e}")
+        import traceback
+        traceback.print_exc()
         return [], []
 
 # Callback: Restore selected call when returning to agent page
 @app.callback(
-    Output('call-selector', 'value'),
+    Output('call-selector', 'value', allow_duplicate=True),
+    Output('store-selected-call-id', 'data', allow_duplicate=True),
     Input('url', 'pathname'),
+    Input('store-active-calls', 'data'),  # Also trigger when calls are loaded
     State('store-selected-call-id', 'data'),
-    prevent_initial_call=False
+    prevent_initial_call='initial_duplicate'  # Required for allow_duplicate
 )
-def restore_selected_call(pathname, stored_call_id):
+def restore_selected_call(pathname, calls_data, stored_call_id):
     """Restore selected call when returning to agent page"""
-    # Only restore on agent page (home page)
+    # Only restore on agent page (home page) where call-selector exists
     if pathname == '/' or pathname == '/agent':
+        # If calls_data is None or empty list, wait for calls to load
+        # But if it's an empty list (not None), that means calls were loaded but empty
+        if calls_data is None:
+            # Calls not loaded yet, don't update dropdown
+            raise PreventUpdate
+        
+        # Check if the stored call_id is still in the active calls list
         if stored_call_id:
-            return stored_call_id
+            # If calls_data is empty list, check if stored call should still be valid
+            if not calls_data:  # Empty list
+                # No active calls, clear selection
+                return None, None
+            
+            call_ids = [c.get('call_id') for c in calls_data]
+            if stored_call_id in call_ids:
+                # Restore both dropdown and store
+                return stored_call_id, stored_call_id
+            # Call not found in active list, clear selection
+            return None, None
+        
+        # No stored call, don't update (let user select)
+        raise PreventUpdate
+    
     # Don't update dropdown on other pages - prevent update
     raise PreventUpdate
 
@@ -689,10 +820,15 @@ def restore_selected_call(pathname, stored_call_id):
 @app.callback(
     Output('call-info-display', 'children'),
     Input('call-selector', 'value'),
+    Input('url', 'pathname'),  # Add pathname to check if on agent page
     State('store-active-calls', 'data')
 )
-def update_call_info(selected_call_id, calls_data):
-    """Update call info display"""
+def update_call_info(selected_call_id, pathname, calls_data):
+    """Update call info display - only on agent page"""
+    # Only update if on agent page where call-info-display exists
+    if pathname != '/' and pathname != '/agent':
+        raise PreventUpdate
+    
     if not selected_call_id or not calls_data:
         return html.Div()
     
@@ -720,10 +856,30 @@ def update_call_info(selected_call_id, calls_data):
 # Callback: Update selected call ID store
 @app.callback(
     Output('store-selected-call-id', 'data'),
-    Input('call-selector', 'value')
+    Input('call-selector', 'value'),
+    Input('url', 'pathname'),  # Also listen to pathname
+    State('store-selected-call-id', 'data'),  # Keep current value if dropdown is empty
+    prevent_initial_call=False
 )
-def update_selected_call_id(selected_call_id):
-    """Update selected call ID in store"""
+def update_selected_call_id(selected_call_id, pathname, current_stored_id):
+    """Update selected call ID in store - only when on agent page"""
+    # Only update if on agent page where call-selector exists
+    # Use callback_context to check which input triggered
+    ctx = callback_context
+    if ctx.triggered:
+        triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        # If pathname changed and we're not on agent page, clear store
+        if triggered_id == 'url' and pathname != '/' and pathname != '/agent':
+            return None
+        # If pathname changed to agent page, keep current stored value until dropdown restores
+        if triggered_id == 'url' and pathname in ('/', '/agent'):
+            # Don't clear the store when returning - let restore callback handle it
+            return current_stored_id
+        # If call-selector triggered but we're not on agent page, prevent update
+        if triggered_id == 'call-selector' and pathname != '/' and pathname != '/agent':
+            raise PreventUpdate
+    
+    # Update with new selection (or None if cleared)
     return selected_call_id
 
 # Callback: Update main content when call selected
@@ -734,10 +890,21 @@ def update_selected_call_id(selected_call_id):
 )
 def update_main_content(selected_call_id, pathname):
     """Update main content area when call is selected - sidebar stays visible"""
+    # Check which input triggered
+    ctx = callback_context
+    triggered_id = None
+    if ctx.triggered:
+        triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
     # Only update on agent page
     if pathname != '/' and pathname != '/agent':
+        # If pathname changed away from agent page, prevent update
+        if triggered_id == 'url':
+            raise PreventUpdate
         return html.Div()
     
+    # If returning to agent page, preserve the selected call
+    # The transcript callback will handle restoring the transcript
     if not selected_call_id:
         return html.H4("Select a call from the sidebar to begin")
     
@@ -745,7 +912,12 @@ def update_main_content(selected_call_id, pathname):
         dbc.Row([
             dbc.Col([
                 html.H4(f"Call {selected_call_id[-8:]}"),
-                html.Div(id="transcript-display")
+                dcc.Loading(
+                    id="transcript-loading",
+                    type="default",
+                    children=html.Div(id="transcript-display"),
+                    style={"minHeight": "200px"}
+                )
             ], width=7),
             dbc.Col([
                 html.H4("🤖 AI Assistant"),
@@ -772,7 +944,7 @@ def update_main_content(selected_call_id, pathname):
                     dbc.Tab([
                         html.Div(id="kb-content")
                     ], label="📚 Knowledge Base", tab_id="kb")
-                ], id="ai-tabs", active_tab="suggestions"),
+                ], id="ai-tabs", active_tab="suggestions"),  # Will be updated by callback
                 
                 html.Hr(),
                 
@@ -786,12 +958,13 @@ def update_main_content(selected_call_id, pathname):
 @app.callback(
     Output('transcript-display', 'children'),
     Output('store-transcript-data', 'data'),
+    Output('store-last-rendered-call-id', 'data'),  # Update this here to avoid race condition
     Input('url', 'pathname'),
     Input('store-selected-call-id', 'data'),
     Input('interval-component', 'n_intervals'),
     State('store-last-rendered-call-id', 'data'),
     State('store-transcript-data', 'data'),
-    prevent_initial_call=True
+    prevent_initial_call=False  # Changed to False so it loads immediately when call is selected
 )
 def update_transcript(pathname, selected_call_id, n_intervals, last_call_id, previous_transcript_data):
     """Fetch and display transcript - only refresh when call changes or new data detected"""
@@ -799,20 +972,74 @@ def update_transcript(pathname, selected_call_id, n_intervals, last_call_id, pre
         raise PreventUpdate
     
     if not selected_call_id:
-        raise PreventUpdate
+        # Show placeholder when no call selected
+        return html.Div("Select a call to view transcript"), None, None
     
-    # Check if call ID changed
-    call_id_changed = (selected_call_id != last_call_id)
+    # Check which input triggered the callback
+    ctx = callback_context
+    triggered_id = None
+    if ctx.triggered:
+        triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
     
-    # If call ID changed, always fetch
+    # If returning to agent page (pathname changed), restore transcript from store if available
+    if triggered_id == 'url' and pathname in ('/', '/agent'):
+        # Wait a moment for selected_call_id to be restored from dropdown
+        # If we have stored transcript data, try to restore it
+        if previous_transcript_data and selected_call_id and selected_call_id == last_call_id:
+            # Restore from stored data
+            # TranscriptContainer is imported at top level
+            import pandas as pd
+            try:
+                transcript_df = pd.DataFrame(previous_transcript_data)
+                display = TranscriptContainer(transcript_df) if transcript_df is not None and not transcript_df.empty else html.Div("No transcript available")
+                return display, previous_transcript_data, last_call_id
+            except Exception as e:
+                # If restore fails, continue to fetch fresh data below
+                print(f"Failed to restore transcript from store: {e}")
+                pass
+        
+        # If we have a selected call but no stored data (or restore failed), fetch fresh data
+        if selected_call_id:
+            try:
+                # TranscriptContainer is imported at top level
+                transcript_df = get_live_transcript(selected_call_id)
+                transcript_data = transcript_df.to_dict('records') if transcript_df is not None and not transcript_df.empty else []
+                display = TranscriptContainer(transcript_df) if transcript_df is not None and not transcript_df.empty else html.Div("No transcript available")
+                return display, transcript_data, selected_call_id
+            except Exception as e:
+                return ErrorAlert(f"Error loading transcript: {e}"), None, selected_call_id
+        
+        # If no call selected yet, check if we have a stored call_id that might be restored soon
+        # Don't show placeholder immediately - wait for restore callback
+        if not selected_call_id and last_call_id:
+            # Call might be restoring, wait for it
+            raise PreventUpdate
+        
+        # If no call selected and no last_call_id, show placeholder
+        return html.Div("Select a call to view transcript"), None, None
+    
+    # Normal flow: Check if call ID changed (including initial load when last_call_id is None)
+    call_id_changed = (selected_call_id != last_call_id) or (last_call_id is None)
+    
+    # If call ID changed, always fetch immediately
     if call_id_changed:
         try:
+            # Clear cache for this call to ensure fresh data
+            from app_dash.utils.data_fetchers import _cache_data, _cache_timestamps
+            cache_key = f"transcript_{selected_call_id}"
+            if cache_key in _cache_data:
+                del _cache_data[cache_key]
+            if cache_key in _cache_timestamps:
+                del _cache_timestamps[cache_key]
+            
             transcript_df = get_live_transcript(selected_call_id)
             transcript_data = transcript_df.to_dict('records') if transcript_df is not None and not transcript_df.empty else []
+            # TranscriptContainer is imported at top level, use it directly
             display = TranscriptContainer(transcript_df) if transcript_df is not None and not transcript_df.empty else html.Div("No transcript available")
-            return display, transcript_data
+            # Update last_call_id immediately to prevent duplicate fetches
+            return display, transcript_data, selected_call_id
         except Exception as e:
-            return ErrorAlert(f"Error loading transcript: {e}"), None
+            return ErrorAlert(f"Error loading transcript: {e}"), None, selected_call_id
     
     # If call ID hasn't changed, check if transcript data has changed
     # Compare current transcript count with previous
@@ -824,24 +1051,58 @@ def update_transcript(pathname, selected_call_id, n_intervals, last_call_id, pre
         # Only update if transcript has new data (more rows)
         if current_count > previous_count:
             transcript_data = current_transcript_df.to_dict('records') if current_transcript_df is not None and not current_transcript_df.empty else []
+            # TranscriptContainer is imported at top level, use it directly
             display = TranscriptContainer(current_transcript_df) if current_transcript_df is not None and not current_transcript_df.empty else html.Div("No transcript available")
-            return display, transcript_data
+            return display, transcript_data, selected_call_id
         else:
             # No new data - prevent update to avoid refreshing
             raise PreventUpdate
     except PreventUpdate:
         raise
     except Exception as e:
-        return ErrorAlert(f"Error loading transcript: {e}"), None
+        return ErrorAlert(f"Error loading transcript: {e}"), None, selected_call_id
 
-# Callback: Update last rendered call ID
+# Callback: Update last rendered call ID (now handled in update_transcript to avoid race conditions)
+# Keeping this for backward compatibility but it's now redundant
 @app.callback(
-    Output('store-last-rendered-call-id', 'data'),
-    Input('store-selected-call-id', 'data')
+    Output('store-last-rendered-call-id', 'data', allow_duplicate=True),
+    Input('store-selected-call-id', 'data'),
+    prevent_initial_call=True
 )
 def update_last_rendered_call_id(selected_call_id):
-    """Track last rendered call ID for caching"""
+    """Track last rendered call ID for caching - now handled in update_transcript"""
     return selected_call_id
+
+# Callback: Restore AI suggestion when returning to agent page
+@app.callback(
+    Output('suggestion-display', 'children', allow_duplicate=True),
+    Input('url', 'pathname'),
+    State('store-suggestion-state', 'data'),
+    State('store-heuristic-suggestion', 'data'),
+    prevent_initial_call=True
+)
+def restore_ai_suggestion(pathname, suggestion_state, heuristic_suggestion):
+    """Restore AI suggestion when returning to agent page"""
+    # Only restore on agent page
+    if pathname not in ('/', '/agent'):
+        raise PreventUpdate
+    
+    # Restore suggestion if available
+    if suggestion_state and suggestion_state.get('suggestion_text'):
+        from app_dash.components.ai_suggestions import create_suggestion_card
+        suggestion_text = suggestion_state.get('suggestion_text')
+        response_time = suggestion_state.get('response_time')
+        is_heuristic = (heuristic_suggestion == suggestion_text)
+        card = create_suggestion_card(suggestion_text, is_heuristic=is_heuristic, response_time=response_time)
+        return card
+    
+    # Try heuristic if available
+    if heuristic_suggestion:
+        from app_dash.components.ai_suggestions import create_suggestion_card
+        card = create_suggestion_card(heuristic_suggestion, is_heuristic=True)
+        return card
+    
+    raise PreventUpdate
 
 # Callback: Get AI suggestion with loading indicator
 @app.callback(
@@ -855,7 +1116,15 @@ def update_last_rendered_call_id(selected_call_id):
 )
 def get_ai_suggestion(n_clicks, selected_call_id, suggestion_state):
     """Get AI suggestion when button is clicked - shows loading indicator"""
+    print(f"\n{'='*60}")
+    print(f"🔵 [CALLBACK TRIGGERED] get_ai_suggestion")
+    print(f"   n_clicks: {n_clicks}")
+    print(f"   selected_call_id: {selected_call_id}")
+    print(f"   suggestion_state: {suggestion_state}")
+    print(f"{'='*60}\n")
+    
     if not selected_call_id or n_clicks == 0:
+        print("⚠️ [CALLBACK] No call selected or button not clicked, returning empty")
         return html.Div(), suggestion_state, None
     
     if suggestion_state is None:
@@ -865,7 +1134,8 @@ def get_ai_suggestion(n_clicks, selected_call_id, suggestion_state):
             'suggestion_text': None,
             'formatted_html': None,
             'response_time': None,
-            'call_id': None
+            'call_id': None,
+            'fetching_enhanced': False
         }
     
     # Set loading state immediately
@@ -882,17 +1152,78 @@ def get_ai_suggestion(n_clicks, selected_call_id, suggestion_state):
         
         # Get heuristic suggestion first (instant)
         heuristic = get_heuristic_suggestion(selected_call_id)
+        print(f"🔍 [CALLBACK] Heuristic result: {heuristic[:100] if heuristic else 'None'}...")
         
         if heuristic:
-            # Show heuristic immediately
+            print(f"⚡ [CALLBACK] Heuristic found! Showing it and fetching enhanced...")
+            # Show heuristic immediately, but also fetch enhanced AI suggestion
             suggestion_state['suggestion_text'] = heuristic
             suggestion_state['call_id'] = selected_call_id
             suggestion_state['loading'] = False
+            suggestion_state['fetching_enhanced'] = True  # Flag to trigger enhanced fetch
             
+            print(f"⚡ Showing heuristic suggestion, setting fetching_enhanced=True for call {selected_call_id}")
+            
+            # Create card with heuristic and add note that enhanced is loading
             card = create_suggestion_card(heuristic, is_heuristic=True)
-            return card, suggestion_state, heuristic
+            
+            # Add a MORE VISIBLE note that enhanced suggestion is being fetched
+            from dash import html as html_comp
+            enhanced_loading_note = html_comp.Div([
+                html_comp.Hr(),
+                dbc.Alert([
+                    html_comp.Div([
+                        dbc.Spinner(size="sm", color="primary", spinner_class_name="me-2"),
+                        html_comp.Strong("Fetching enhanced AI suggestion...", style={"fontSize": "1rem", "color": "#0051FF"})
+                    ], style={"display": "flex", "alignItems": "center"}),
+                    html_comp.Small("This may take a few seconds", className="text-muted mt-1")
+                ], color="info", className="mt-2")
+            ])
+            
+            # Combine card with loading note
+            card_with_loading = html_comp.Div([card, enhanced_loading_note])
+            
+            # IMPORTANT: Fetch enhanced suggestion immediately in this callback
+            # This ensures it happens right away, not waiting for another callback
+            print(f"🔄 [CALLBACK] Starting enhanced AI suggestion fetch for call {selected_call_id}...")
+            print(f"🔄 [CALLBACK] Current suggestion_state keys: {list(suggestion_state.keys())}")
+            try:
+                # Fetch enhanced AI suggestion (force LLM call, don't use heuristic)
+                enhanced_suggestion, response_time, timing = get_ai_suggestion_async(selected_call_id, use_heuristic=False)
+                
+                print(f"✅ [CALLBACK] Enhanced AI suggestion received: {enhanced_suggestion[:100]}...")
+                print(f"✅ [CALLBACK] Response time: {response_time}s")
+                
+                # Update suggestion state with enhanced suggestion
+                suggestion_state['suggestion_text'] = enhanced_suggestion
+                suggestion_state['response_time'] = response_time
+                suggestion_state['fetching_enhanced'] = False
+                
+                # Create card with enhanced suggestion
+                enhanced_card = create_suggestion_card(enhanced_suggestion, is_heuristic=False, response_time=response_time)
+                
+                print(f"✅ [CALLBACK] Returning enhanced card, replacing heuristic")
+                # Return enhanced suggestion immediately
+                return enhanced_card, suggestion_state, heuristic
+            except Exception as e:
+                # If enhanced fetch fails, return heuristic with error note
+                print(f"❌ [CALLBACK] ERROR fetching enhanced suggestion: {e}")
+                import traceback
+                traceback.print_exc()
+                suggestion_state['fetching_enhanced'] = False
+                # Return heuristic card with loading note (enhanced failed)
+                error_note = html_comp.Div([
+                    html_comp.Hr(),
+                    dbc.Alert([
+                        html_comp.Strong("⚠️ Enhanced suggestion unavailable"),
+                        html_comp.Br(),
+                        html_comp.Small(f"Error: {str(e)[:100]}", className="text-muted")
+                    ], color="warning", className="mt-2")
+                ])
+                card_with_error = html_comp.Div([card, error_note])
+                return card_with_error, suggestion_state, heuristic
         
-        # Get full AI suggestion (force LLM call, don't use heuristic)
+        # No heuristic available, get full AI suggestion (force LLM call)
         # This will take time, so loading indicator will show
         suggestion, response_time, timing = get_ai_suggestion_async(selected_call_id, use_heuristic=False)
         
@@ -900,6 +1231,7 @@ def get_ai_suggestion(n_clicks, selected_call_id, suggestion_state):
         suggestion_state['response_time'] = response_time
         suggestion_state['call_id'] = selected_call_id
         suggestion_state['loading'] = False
+        suggestion_state['fetching_enhanced'] = False
         
         card = create_suggestion_card(suggestion, response_time=response_time)
         return card, suggestion_state, None
@@ -907,7 +1239,68 @@ def get_ai_suggestion(n_clicks, selected_call_id, suggestion_state):
     except Exception as e:
         suggestion_state['error'] = str(e)
         suggestion_state['loading'] = False
+        suggestion_state['fetching_enhanced'] = False
         return ErrorAlert(f"Error getting suggestion: {e}"), suggestion_state, None
+
+# Callback: Fetch enhanced AI suggestion after heuristic is shown
+@app.callback(
+    Output('suggestion-display', 'children', allow_duplicate=True),
+    Output('store-suggestion-state', 'data', allow_duplicate=True),
+    Input('store-suggestion-state', 'data'),
+    Input('interval-component', 'n_intervals'),  # Also check on interval
+    Input('enhanced-suggestion-interval', 'n_intervals'),  # Fast interval for enhanced suggestions
+    State('store-selected-call-id', 'data'),
+    prevent_initial_call=True
+)
+def fetch_enhanced_suggestion(suggestion_state, n_intervals, enhanced_n_intervals, selected_call_id):
+    """Fetch enhanced AI suggestion when heuristic is shown"""
+    # Check which input triggered
+    ctx = callback_context
+    triggered_id = None
+    if ctx.triggered:
+        triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    if not suggestion_state or not selected_call_id:
+        raise PreventUpdate
+    
+    # Only fetch if we're in the fetching_enhanced state
+    if not suggestion_state.get('fetching_enhanced', False):
+        raise PreventUpdate
+    
+    # Check if we already have an enhanced suggestion (not heuristic)
+    # We can tell if it's heuristic by checking if response_time exists (enhanced suggestions have response_time)
+    if suggestion_state.get('suggestion_text') and suggestion_state.get('response_time'):
+        # Already have enhanced suggestion (has response_time from LLM)
+        # Clear the fetching flag
+        if suggestion_state.get('fetching_enhanced', False):
+            suggestion_state['fetching_enhanced'] = False
+        raise PreventUpdate
+    
+    try:
+        print(f"🔄 Fetching enhanced AI suggestion for call {selected_call_id}... (triggered by {triggered_id})")
+        # Fetch enhanced AI suggestion (force LLM call, don't use heuristic)
+        suggestion, response_time, timing = get_ai_suggestion_async(selected_call_id, use_heuristic=False)
+        
+        print(f"✅ Enhanced AI suggestion received: {suggestion[:100]}...")
+        
+        # Update suggestion state with enhanced suggestion
+        suggestion_state['suggestion_text'] = suggestion
+        suggestion_state['response_time'] = response_time
+        suggestion_state['fetching_enhanced'] = False
+        
+        # Create card with enhanced suggestion
+        card = create_suggestion_card(suggestion, is_heuristic=False, response_time=response_time)
+        
+        return card, suggestion_state
+        
+    except Exception as e:
+        # If enhanced fetch fails, keep heuristic and clear flag
+        suggestion_state['fetching_enhanced'] = False
+        print(f"❌ Error fetching enhanced suggestion: {e}")
+        import traceback
+        traceback.print_exc()
+        # Don't update display, keep heuristic
+        raise PreventUpdate
 
 # Callback: Update Member Info tab (Phase 5)
 @app.callback(
@@ -935,10 +1328,16 @@ def update_member_info(selected_call_id, active_tab):
     Output('kb-content', 'children'),
     Input('store-selected-call-id', 'data'),
     Input('ai-tabs', 'active_tab'),
+    Input('url', 'pathname'),  # Add pathname to restore when returning
+    State('store-kb-selected-question', 'data'),
     prevent_initial_call=True
 )
-def update_kb_tab_content(selected_call_id, active_tab):
+def update_kb_tab_content(selected_call_id, active_tab, pathname, stored_selected_question):
     """Update KB tab content when tab is active"""
+    # Only on agent page
+    if pathname != '/' and pathname != '/agent':
+        raise PreventUpdate
+    
     if active_tab != 'kb' or not selected_call_id:
         return html.Div()
     
@@ -954,12 +1353,15 @@ def update_kb_tab_content(selected_call_id, active_tab):
         # Get sample question for placeholder (first suggested question)
         sample_question = suggested_questions[0] if suggested_questions else "Type your question here..."
         
+        # Restore selected question if available
+        radio_value = stored_selected_question if stored_selected_question in [q for q in suggested_questions] else None
+        
         return html.Div([
             html.H6("💡 Suggested Questions:", className="mb-2"),
             dbc.RadioItems(
                 id="kb-question-radio",
                 options=radio_options,
-                value=None,
+                value=radio_value,  # Restore selected question
                 className="mb-3"
             ) if radio_options else html.P("No suggestions available", className="text-muted"),
             html.Hr(),
@@ -983,10 +1385,38 @@ def update_kb_tab_content(selected_call_id, active_tab):
                     n_clicks=0
                 )
             ], className="mb-2"),
-            html.Div(id="kb-results-display", className="mt-3")
+            dcc.Loading(
+                id="kb-search-loading",
+                type="default",
+                children=html.Div(id="kb-results-display", className="mt-3"),
+                style={"minHeight": "100px"}
+            )
         ])
     except Exception as e:
         return ErrorAlert(f"Error loading KB: {e}")
+
+# Callback: Restore KB results when returning to agent page
+@app.callback(
+    Output('kb-results-display', 'children', allow_duplicate=True),
+    Input('url', 'pathname'),
+    Input('ai-tabs', 'active_tab'),
+    State('store-kb-results', 'data'),
+    State('store-kb-query', 'data'),
+    prevent_initial_call=True
+)
+def restore_kb_results(pathname, active_tab, stored_kb_results, stored_kb_query):
+    """Restore KB results when returning to agent page and KB tab is active"""
+    # Only restore on agent page when KB tab is active
+    if pathname not in ('/', '/agent') or active_tab != 'kb':
+        raise PreventUpdate
+    
+    # Restore results if available
+    if stored_kb_results and stored_kb_query:
+        from app_dash.components.kb_search import create_kb_results_display
+        display = create_kb_results_display(stored_kb_results, stored_kb_query)
+        return display
+    
+    raise PreventUpdate
 
 # Callback: KB search when radio selected or manual search (Phase 6)
 @app.callback(
@@ -1083,7 +1513,7 @@ def update_compliance_alerts(selected_call_id, n_intervals, last_call_id, transc
     except Exception as e:
         return ErrorAlert(f"Error loading compliance alerts: {e}")
 
-# Callback: Track active tab (Phase 8)
+# Callback: Track active tab
 @app.callback(
     Output('store-active-tab', 'data'),
     Input('ai-tabs', 'active_tab')
@@ -1091,6 +1521,20 @@ def update_compliance_alerts(selected_call_id, n_intervals, last_call_id, transc
 def update_active_tab(active_tab):
     """Track which tab is active"""
     return active_tab
+
+# Callback: Restore active tab when returning to agent page
+@app.callback(
+    Output('ai-tabs', 'active_tab', allow_duplicate=True),
+    Input('url', 'pathname'),
+    State('store-active-tab', 'data'),
+    prevent_initial_call='initial_duplicate'
+)
+def restore_active_tab(pathname, stored_active_tab):
+    """Restore active tab when returning to agent page"""
+    # If returning to agent page, restore the stored tab
+    if pathname in ('/', '/agent') and stored_active_tab:
+        return stored_active_tab
+    raise PreventUpdate
 
 # Callback: Toggle sidebar expand/collapse
 @app.callback(
@@ -1173,6 +1617,179 @@ def display_page(pathname):
                 ], id="main-content-col", width=10)
             ])
         ], fluid=True)
+
+# Add JavaScript to color dropdown options (injected into the page)
+# Get the original index_string first
+original_index_string = app.index_string
+
+app.index_string = original_index_string.replace(
+    '</body>',
+    '''
+    <script>
+    (function() {
+        'use strict';
+        
+        // Function to color dropdown options - try multiple selectors
+        function colorDropdownOptions() {
+            try {
+                // Try different selectors for Dash dropdown (react-select)
+                var selectors = [
+                    '.Select-option',
+                    '.Select-menu-outer .Select-option',
+                    '[class*="Select-option"]',
+                    '[id="call-selector"] .Select-option',
+                    '.dash-dropdown .Select-option',
+                    'div[role="option"]'
+                ];
+                
+                var options = [];
+                selectors.forEach(function(selector) {
+                    try {
+                        var found = document.querySelectorAll(selector);
+                        if (found && found.length > 0) {
+                            for (var i = 0; i < found.length; i++) {
+                                var opt = found[i];
+                                // Check if already added
+                                var alreadyAdded = false;
+                                for (var j = 0; j < options.length; j++) {
+                                    if (options[j] === opt) {
+                                        alreadyAdded = true;
+                                        break;
+                                    }
+                                }
+                                if (!alreadyAdded) {
+                                    options.push(opt);
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        // Silently skip invalid selectors
+                    }
+                });
+                
+                // Color each option
+                options.forEach(function(option) {
+                    try {
+                        var text = (option.textContent || option.innerText || '').toString();
+                        
+                        if (text.indexOf('🔴') !== -1) {
+                            option.style.color = '#DC3545';
+                            option.style.borderLeft = '4px solid #DC3545';
+                            option.style.backgroundColor = '#fff5f5';
+                            option.style.fontWeight = '600';
+                            option.style.paddingLeft = '0.5rem';
+                        } else if (text.indexOf('🟢') !== -1) {
+                            option.style.color = '#00A651';
+                            option.style.borderLeft = '4px solid #00A651';
+                            option.style.backgroundColor = '#f0fff4';
+                            option.style.paddingLeft = '0.5rem';
+                        }
+                    } catch (e) {
+                        // Skip options that can't be styled
+                    }
+                });
+                
+                // Color selected value - try multiple selectors
+                var selectedSelectors = [
+                    '.Select-value-label',
+                    '[class*="Select-value-label"]',
+                    '[id="call-selector"] .Select-value-label',
+                    '.Select-value .Select-value-label'
+                ];
+                
+                selectedSelectors.forEach(function(selector) {
+                    try {
+                        var selectedLabel = document.querySelector(selector);
+                        if (selectedLabel) {
+                            var selectedText = (selectedLabel.textContent || selectedLabel.innerText || '').toString();
+                            if (selectedText.indexOf('🔴') !== -1) {
+                                selectedLabel.style.color = '#DC3545';
+                                selectedLabel.style.fontWeight = '600';
+                            } else if (selectedText.indexOf('🟢') !== -1) {
+                                selectedLabel.style.color = '#00A651';
+                            }
+                        }
+                    } catch (e) {
+                        // Skip if selector fails
+                    }
+                });
+            } catch (e) {
+                // Silently handle errors
+            }
+        }
+        
+        // Run on page load
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', function() {
+                setTimeout(colorDropdownOptions, 500);
+                setTimeout(colorDropdownOptions, 1500);
+            });
+        } else {
+            setTimeout(colorDropdownOptions, 500);
+            setTimeout(colorDropdownOptions, 1500);
+        }
+        
+        // Run when dropdown opens - observe the entire document
+        try {
+            var observer = new MutationObserver(function(mutations) {
+                var shouldRun = false;
+                mutations.forEach(function(mutation) {
+                    if (mutation.addedNodes && mutation.addedNodes.length > 0) {
+                        for (var i = 0; i < mutation.addedNodes.length; i++) {
+                            var node = mutation.addedNodes[i];
+                            if (node && node.nodeType === 1) { // Element node
+                                if (node.classList && (
+                                    node.classList.contains('Select-menu-outer') ||
+                                    node.classList.contains('Select-menu')
+                                )) {
+                                    shouldRun = true;
+                                } else if (node.querySelector && node.querySelector('.Select-option')) {
+                                    shouldRun = true;
+                                }
+                            }
+                        }
+                    }
+                });
+                if (shouldRun) {
+                    setTimeout(colorDropdownOptions, 50);
+                }
+            });
+            
+            // Observe the entire body for dropdown menu additions
+            setTimeout(function() {
+                if (document.body) {
+                    observer.observe(document.body, { 
+                        childList: true, 
+                        subtree: true 
+                    });
+                }
+            }, 1000);
+        } catch (e) {
+            // MutationObserver not supported, use fallback
+        }
+        
+        // Also run periodically to catch updates
+        setInterval(colorDropdownOptions, 2000);
+        
+        // Listen for click events on dropdown
+        document.addEventListener('click', function(e) {
+            try {
+                var target = e.target;
+                if (target && (
+                    (target.id === 'call-selector') ||
+                    (target.closest && (target.closest('#call-selector') || target.closest('.Select-control')))
+                )) {
+                    setTimeout(colorDropdownOptions, 200);
+                }
+            } catch (e) {
+                // Ignore errors
+            }
+        });
+    })();
+    </script>
+    </body>
+    '''
+)
 
 # Register page callbacks (only if pages are imported successfully)
 try:

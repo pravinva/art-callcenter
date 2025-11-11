@@ -3,6 +3,7 @@ Supervisor Dashboard Page
 Dash page for supervisor monitoring and escalations
 """
 from dash import html, dcc, Input, Output, State
+from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 import sys
 from pathlib import Path
@@ -25,11 +26,21 @@ def create_supervisor_layout():
         html.P("Real-time call monitoring and escalation management", className="text-muted mb-4"),
         html.Hr(),
         
-        # Summary metrics tabs (will be populated with data)
-        html.Div(id="supervisor-summary"),
+        # Summary metrics tabs (will be populated with data) - with loading spinner
+        dcc.Loading(
+            id="supervisor-summary-loading",
+            type="default",
+            children=html.Div(id="supervisor-summary"),
+            style={"minHeight": "200px"}
+        ),
         
-        # Tab content area
-        html.Div(id="supervisor-tab-content", className="mt-4"),
+        # Tab content area - with loading spinner
+        dcc.Loading(
+            id="supervisor-tab-loading",
+            type="default",
+            children=html.Div(id="supervisor-tab-content", className="mt-4"),
+            style={"minHeight": "300px"}
+        ),
         
         # Stores
         dcc.Store(id="store-supervisor-calls"),
@@ -48,10 +59,15 @@ def register_supervisor_callbacks(app):
         Output('store-supervisor-calls', 'data'),
         Output('store-supervisor-escalations', 'data'),
         Output('store-supervisor-summary-data', 'data'),
-        Input('supervisor-interval', 'n_intervals')
+        Input('supervisor-interval', 'n_intervals'),
+        Input('url', 'pathname')  # Also trigger when navigating to supervisor page
     )
-    def update_supervisor_dashboard(n_intervals):
+    def update_supervisor_dashboard(n_intervals, pathname):
         """Update supervisor dashboard summary tabs"""
+        # Only update when on supervisor page
+        if pathname != '/supervisor':
+            raise PreventUpdate
+        
         try:
             # Get active calls
             active_calls_df = get_all_active_calls()
@@ -64,7 +80,22 @@ def register_supervisor_callbacks(app):
                     'total_complaints': 0
                 }
                 summary = create_escalation_summary_tabs(summary_data)
-                return summary, [], {}, summary_data
+                # Add helpful message about no recent data
+                empty_message = dbc.Alert([
+                    html.H5("📊 No Active Calls in Last 10 Minutes", className="mb-2"),
+                    html.P("The supervisor dashboard shows calls from the last 10 minutes. This could mean:", className="mb-2"),
+                    html.Ul([
+                        html.Li("No calls are currently active"),
+                        html.Li("The enrichment pipeline may not be running"),
+                        html.Li("Data may be older than 10 minutes")
+                    ]),
+                    html.Hr(),
+                    html.P([
+                        html.Strong("💡 Tip: "),
+                        "Check the pipeline status in Databricks UI or extend the time window for demo purposes."
+                    ], className="mb-0")
+                ], color="info", className="mt-3")
+                return html.Div([summary, empty_message]), [], {}, summary_data
             
             # Get escalation data for all calls
             call_ids = active_calls_df['call_id'].tolist()
@@ -94,7 +125,10 @@ def register_supervisor_callbacks(app):
     def update_supervisor_tab_content(active_tab, calls_data, escalation_dict, summary_data):
         """Update content based on selected tab"""
         if not calls_data or not escalation_dict:
-            return dbc.Alert("No data available", color="info")
+            return dbc.Alert([
+                html.H5("📊 No Data Available", className="mb-2"),
+                html.P("No active calls found in the last 10 minutes. The dashboard will update automatically when new calls are detected.", className="mb-0")
+            ], color="info")
         
         import pandas as pd
         active_calls_df = pd.DataFrame(calls_data)

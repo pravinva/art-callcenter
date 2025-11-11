@@ -3,6 +3,7 @@ Analytics Dashboard Page
 Dash page for analytics and reporting
 """
 from dash import html, dcc, Input, Output, State
+from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 import sys
 from pathlib import Path
@@ -29,10 +30,22 @@ def create_analytics_layout():
         # Tabs
         dbc.Tabs([
             dbc.Tab([
-                html.Div(id="analytics-overview-content")
+                # Overview content with loading spinner
+                dcc.Loading(
+                    id="analytics-overview-loading",
+                    type="default",
+                    children=html.Div(id="analytics-overview-content"),
+                    style={"minHeight": "300px"}
+                )
             ], label="📈 Overview", tab_id="overview"),
             dbc.Tab([
-                html.Div(id="analytics-agent-content"),
+                # Agent performance content with loading spinner
+                dcc.Loading(
+                    id="analytics-agent-loading",
+                    type="default",
+                    children=html.Div(id="analytics-agent-content"),
+                    style={"minHeight": "300px"}
+                ),
                 html.Div([
                     html.Hr(),
                     html.H4("Search Agent Performance", className="mb-3"),
@@ -45,7 +58,13 @@ def create_analytics_layout():
                 ], id="agent-search-container", style={"display": "none"})
             ], label="👥 Agent Performance", tab_id="agent"),
             dbc.Tab([
-                html.Div(id="analytics-calls-content"),
+                # Call summaries content with loading spinner
+                dcc.Loading(
+                    id="analytics-calls-loading",
+                    type="default",
+                    children=html.Div(id="analytics-calls-content"),
+                    style={"minHeight": "300px"}
+                ),
                 html.Div([
                     html.Hr(),
                     html.H3("Call Summaries", className="mb-4"),
@@ -79,7 +98,13 @@ def create_analytics_layout():
                 ], id="calls-filter-container", style={"display": "none"})
             ], label="📞 Call Summaries", tab_id="calls"),
             dbc.Tab([
-                html.Div(id="analytics-daily-content")
+                # Daily statistics content with loading spinner
+                dcc.Loading(
+                    id="analytics-daily-loading",
+                    type="default",
+                    children=html.Div(id="analytics-daily-content"),
+                    style={"minHeight": "300px"}
+                )
             ], label="📊 Daily Statistics", tab_id="daily")
         ], id="analytics-tabs", active_tab="overview"),
         
@@ -104,10 +129,15 @@ def register_analytics_callbacks(app):
         Output('store-analytics-metrics', 'data'),
         Input('analytics-tabs', 'active_tab'),
         Input('analytics-interval', 'n_intervals'),
-        Input('analytics-initial-load', 'children')
+        Input('analytics-initial-load', 'children'),
+        Input('url', 'pathname')  # Also trigger when navigating to analytics page
     )
-    def update_overview(active_tab, n_intervals, initial_load):
+    def update_overview(active_tab, n_intervals, initial_load, pathname):
         """Update overview tab"""
+        # Only update when on analytics page
+        if pathname != '/analytics':
+            raise PreventUpdate
+        
         if active_tab != 'overview':
             return html.Div(), None
         
@@ -137,11 +167,16 @@ def register_analytics_callbacks(app):
         Input('analytics-tabs', 'active_tab'),
         Input('analytics-interval', 'n_intervals'),
         Input('analytics-initial-load', 'children'),
+        Input('url', 'pathname'),  # Also trigger when navigating to analytics page
         Input('agent-search-input', 'value'),
         prevent_initial_call=False
     )
-    def update_agent_performance(active_tab, n_intervals, initial_load, search_value):
+    def update_agent_performance(active_tab, n_intervals, initial_load, pathname, search_value):
         """Update agent performance tab"""
+        # Only update when on analytics page
+        if pathname != '/analytics':
+            raise PreventUpdate
+        
         if active_tab != 'agent':
             return html.Div(), None, {"display": "none"}
         
@@ -190,12 +225,17 @@ def register_analytics_callbacks(app):
         Input('analytics-tabs', 'active_tab'),
         Input('analytics-interval', 'n_intervals'),
         Input('analytics-initial-load', 'children'),
+        Input('url', 'pathname'),  # Also trigger when navigating to analytics page
         Input('sentiment-filter', 'value'),
         Input('compliance-filter', 'value'),
         prevent_initial_call=False
     )
-    def update_call_summaries(active_tab, n_intervals, initial_load, sentiment_filter, compliance_filter):
+    def update_call_summaries(active_tab, n_intervals, initial_load, pathname, sentiment_filter, compliance_filter):
         """Update call summaries tab"""
+        # Only update when on analytics page
+        if pathname != '/analytics':
+            raise PreventUpdate
+        
         if active_tab != 'calls':
             return html.Div(), None, {"display": "none"}
         
@@ -226,10 +266,15 @@ def register_analytics_callbacks(app):
         Output('analytics-daily-content', 'children'),
         Output('store-analytics-daily-stats', 'data'),
         Input('analytics-tabs', 'active_tab'),
-        Input('analytics-interval', 'n_intervals')
+        Input('analytics-interval', 'n_intervals'),
+        Input('url', 'pathname')  # Also trigger when navigating to analytics page
     )
-    def update_daily_statistics(active_tab, n_intervals):
+    def update_daily_statistics(active_tab, n_intervals, pathname):
         """Update daily statistics tab"""
+        # Only update when on analytics page
+        if pathname != '/analytics':
+            raise PreventUpdate
+        
         if active_tab != 'daily':
             return html.Div(), None
         
