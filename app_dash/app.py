@@ -980,14 +980,16 @@ def update_main_content(selected_call_id, pathname):
     Output('store-last-rendered-call-id', 'data'),  # Update this here to avoid race condition
     Input('store-selected-call-id', 'data'),
     Input('interval-component', 'n_intervals'),
+    Input('url', 'pathname'),  # Add pathname to restore cached data when returning to agent page
     State('store-last-rendered-call-id', 'data'),
     State('store-transcript-data', 'data'),
     prevent_initial_call=False  # Changed to False so it loads immediately when call is selected
 )
-def update_transcript(selected_call_id, n_intervals, last_call_id, previous_transcript_data):
-    """Fetch and display transcript - only refresh when call changes or new data detected"""
-    # REMOVED pathname as Input - it was causing unnecessary reloads on navigation
-    # Components are persistent, so we only need to update on call change or interval
+def update_transcript(selected_call_id, n_intervals, pathname, last_call_id, previous_transcript_data):
+    """Fetch and display transcript - preserve from store, only fetch when call changes or new data"""
+    # Only update on agent page (same check as compliance)
+    if pathname != '/' and pathname != '/agent':
+        raise PreventUpdate
 
     if not selected_call_id:
         # Show placeholder when no call selected
@@ -998,6 +1000,32 @@ def update_transcript(selected_call_id, n_intervals, last_call_id, previous_tran
     triggered_id = None
     if ctx.triggered:
         triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+
+    print(f"🔍 [TRANSCRIPT] triggered_id={triggered_id}, pathname={pathname}, call_id={selected_call_id}, last_call_id={last_call_id}")
+
+    # CRITICAL: If returning to agent page (pathname changed) and we have cached data, return it immediately
+    if triggered_id == 'url' and previous_transcript_data and selected_call_id == last_call_id:
+        import pandas as pd
+        try:
+            transcript_df = pd.DataFrame(previous_transcript_data)
+            if not transcript_df.empty:
+                display = TranscriptContainer(transcript_df)
+                print(f"✅ [TRANSCRIPT] Restoring cached transcript for call {selected_call_id} on return to agent page")
+                return display, previous_transcript_data, last_call_id
+        except Exception as e:
+            print(f"⚠️ [TRANSCRIPT] Error restoring cached data: {e}")
+
+    # If we have previous transcript data for this same call and interval triggered, preserve it
+    if triggered_id == 'interval-component' and previous_transcript_data and selected_call_id == last_call_id:
+        import pandas as pd
+        try:
+            transcript_df = pd.DataFrame(previous_transcript_data)
+            if not transcript_df.empty:
+                display = TranscriptContainer(transcript_df)
+                print(f"✅ [TRANSCRIPT] Preserving cached transcript for call {selected_call_id}")
+                return display, previous_transcript_data, last_call_id
+        except Exception as e:
+            print(f"⚠️ [TRANSCRIPT] Error preserving cached data: {e}")
 
     
     # Normal flow: Check if call ID changed (including initial load when last_call_id is None)
