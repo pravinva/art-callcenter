@@ -665,17 +665,20 @@ def update_active_calls(n_intervals, pathname, previous_calls_data):
     if ctx.triggered:
         triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
     
-    # If returning to agent page (pathname changed), always load calls
-    if triggered_id == 'url' and pathname in ('/', '/agent'):
-        # Force refresh when returning to agent page
-        previous_calls_data = None
-    
     # Only update if on agent page (where call-selector exists)
     if pathname != '/' and pathname != '/agent':
         raise PreventUpdate
     
+    # If returning to agent page (pathname changed), ALWAYS fetch and update calls
+    # This ensures dropdown is populated even if data appears unchanged
+    is_returning_to_agent_page = (triggered_id == 'url' and pathname in ('/', '/agent'))
+    
+    if is_returning_to_agent_page:
+        print(f"🔄 [ACTIVE_CALLS] Returning to agent page, fetching calls...")
+    
     try:
         calls = get_active_calls()
+        print(f"📞 [ACTIVE_CALLS] Fetched {len(calls) if calls else 0} active calls")
         
         # Get compliance data for all calls efficiently
         call_ids = [call[0] for call in calls] if calls else []
@@ -757,9 +760,9 @@ def update_active_calls(n_intervals, pathname, previous_calls_data):
             })
         
         # Compare with previous data - only update if changed
-        # But always update if returning to agent page (triggered by pathname change)
-        # Skip comparison if we're forcing a refresh (returning to page)
-        if previous_calls_data and triggered_id != 'url':
+        # BUT: Always update if returning to agent page (to ensure dropdown is populated)
+        # This is critical for restoring state when navigating back
+        if not is_returning_to_agent_page and previous_calls_data:
             previous_call_ids = {c.get('call_id') for c in previous_calls_data}
             current_call_ids = {c.get('call_id') for c in calls_data}
             
@@ -768,6 +771,7 @@ def update_active_calls(n_intervals, pathname, previous_calls_data):
                 raise PreventUpdate
         
         # Always return options and data, even if empty (so restore callback can work)
+        # This ensures dropdown is populated when returning to agent page
         return options, calls_data
     except PreventUpdate:
         raise
@@ -790,27 +794,40 @@ def restore_selected_call(pathname, calls_data, stored_call_id):
     """Restore selected call when returning to agent page"""
     # Only restore on agent page (home page) where call-selector exists
     if pathname == '/' or pathname == '/agent':
-        # If calls_data is None or empty list, wait for calls to load
-        # But if it's an empty list (not None), that means calls were loaded but empty
+        # Check which input triggered
+        ctx = callback_context
+        triggered_id = None
+        if ctx.triggered:
+            triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+        
+        # If calls_data is None, wait for calls to load
         if calls_data is None:
             # Calls not loaded yet, don't update dropdown
             raise PreventUpdate
+        
+        # If returning to agent page and we have calls_data, try to restore
+        is_returning = (triggered_id == 'url' and pathname in ('/', '/agent'))
         
         # Check if the stored call_id is still in the active calls list
         if stored_call_id:
             # If calls_data is empty list, check if stored call should still be valid
             if not calls_data:  # Empty list
                 # No active calls, clear selection
+                print(f"⚠️ [RESTORE] No active calls found, clearing selection")
                 return None, None
             
-            call_ids = [c.get('call_id') for c in calls_data]
+            call_ids = [c.get('call_id') for c in calls_data if c and c.get('call_id')]
             if stored_call_id in call_ids:
                 # Restore both dropdown and store
+                print(f"✅ [RESTORE] Restoring call {stored_call_id} to dropdown")
                 return stored_call_id, stored_call_id
-            # Call not found in active list, clear selection
-            return None, None
+            else:
+                # Call not found in active list, clear selection
+                print(f"⚠️ [RESTORE] Call {stored_call_id} not found in active calls, clearing selection")
+                return None, None
         
         # No stored call, don't update (let user select)
+        # But if returning to page and no stored call, that's fine - just prevent update
         raise PreventUpdate
     
     # Don't update dropdown on other pages - prevent update
@@ -862,25 +879,34 @@ def update_call_info(selected_call_id, pathname, calls_data):
     prevent_initial_call=False
 )
 def update_selected_call_id(selected_call_id, pathname, current_stored_id):
-    """Update selected call ID in store - only when on agent page"""
-    # Only update if on agent page where call-selector exists
+    """Update selected call ID in store - PRESERVE state when navigating away"""
     # Use callback_context to check which input triggered
     ctx = callback_context
     if ctx.triggered:
         triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
-        # If pathname changed and we're not on agent page, clear store
-        if triggered_id == 'url' and pathname != '/' and pathname != '/agent':
-            return None
-        # If pathname changed to agent page, keep current stored value until dropdown restores
-        if triggered_id == 'url' and pathname in ('/', '/agent'):
-            # Don't clear the store when returning - let restore callback handle it
+        
+        # IMPORTANT: NEVER clear the store when navigating away
+        # This ensures state persists when returning to agent page
+        if triggered_id == 'url':
+            # When navigating away, preserve the stored call ID
+            if pathname != '/' and pathname != '/agent':
+                # Keep the stored value - don't clear it!
+                return current_stored_id
+            # When returning to agent page, keep current stored value
+            # The restore callback will handle setting the dropdown
             return current_stored_id
-        # If call-selector triggered but we're not on agent page, prevent update
-        if triggered_id == 'call-selector' and pathname != '/' and pathname != '/agent':
-            raise PreventUpdate
+        
+        # If call-selector changed and we're on agent page, update store
+        if triggered_id == 'call-selector':
+            if pathname in ('/', '/agent'):
+                # User selected a new call - update store
+                return selected_call_id
+            else:
+                # Not on agent page, preserve current value
+                return current_stored_id
     
-    # Update with new selection (or None if cleared)
-    return selected_call_id
+    # Default: preserve current value or update if new selection
+    return selected_call_id if selected_call_id is not None else current_stored_id
 
 # Callback: Update main content when call selected
 @app.callback(
@@ -983,8 +1009,15 @@ def update_transcript(pathname, selected_call_id, n_intervals, last_call_id, pre
     
     # If returning to agent page (pathname changed), restore transcript from store if available
     if triggered_id == 'url' and pathname in ('/', '/agent'):
-        # Wait a moment for selected_call_id to be restored from dropdown
-        # If we have stored transcript data, try to restore it
+        print(f"🔄 [TRANSCRIPT] Returning to agent page, selected_call_id={selected_call_id}, last_call_id={last_call_id}")
+        
+        # If we have a stored call_id but selected_call_id is None, wait for restore callback
+        # The restore_selected_call callback will set selected_call_id, which will trigger this callback again
+        if not selected_call_id and last_call_id:
+            print(f"⏳ [TRANSCRIPT] Waiting for call to be restored...")
+            raise PreventUpdate
+        
+        # If we have stored transcript data and the call matches, restore it
         if previous_transcript_data and selected_call_id and selected_call_id == last_call_id:
             # Restore from stored data
             # TranscriptContainer is imported at top level
@@ -992,30 +1025,29 @@ def update_transcript(pathname, selected_call_id, n_intervals, last_call_id, pre
             try:
                 transcript_df = pd.DataFrame(previous_transcript_data)
                 display = TranscriptContainer(transcript_df) if transcript_df is not None and not transcript_df.empty else html.Div("No transcript available")
+                print(f"✅ [TRANSCRIPT] Restored transcript from store for call {selected_call_id}")
                 return display, previous_transcript_data, last_call_id
             except Exception as e:
                 # If restore fails, continue to fetch fresh data below
-                print(f"Failed to restore transcript from store: {e}")
+                print(f"⚠️ [TRANSCRIPT] Failed to restore transcript from store: {e}")
                 pass
         
         # If we have a selected call but no stored data (or restore failed), fetch fresh data
         if selected_call_id:
             try:
+                print(f"📥 [TRANSCRIPT] Fetching fresh transcript for call {selected_call_id}")
                 # TranscriptContainer is imported at top level
                 transcript_df = get_live_transcript(selected_call_id)
                 transcript_data = transcript_df.to_dict('records') if transcript_df is not None and not transcript_df.empty else []
                 display = TranscriptContainer(transcript_df) if transcript_df is not None and not transcript_df.empty else html.Div("No transcript available")
+                print(f"✅ [TRANSCRIPT] Loaded transcript for call {selected_call_id}")
                 return display, transcript_data, selected_call_id
             except Exception as e:
+                print(f"❌ [TRANSCRIPT] Error loading transcript: {e}")
                 return ErrorAlert(f"Error loading transcript: {e}"), None, selected_call_id
         
-        # If no call selected yet, check if we have a stored call_id that might be restored soon
-        # Don't show placeholder immediately - wait for restore callback
-        if not selected_call_id and last_call_id:
-            # Call might be restoring, wait for it
-            raise PreventUpdate
-        
         # If no call selected and no last_call_id, show placeholder
+        print(f"ℹ️ [TRANSCRIPT] No call selected, showing placeholder")
         return html.Div("Select a call to view transcript"), None, None
     
     # Normal flow: Check if call ID changed (including initial load when last_call_id is None)
@@ -1077,29 +1109,49 @@ def update_last_rendered_call_id(selected_call_id):
 @app.callback(
     Output('suggestion-display', 'children', allow_duplicate=True),
     Input('url', 'pathname'),
+    Input('store-selected-call-id', 'data'),  # Also trigger when call is restored
     State('store-suggestion-state', 'data'),
     State('store-heuristic-suggestion', 'data'),
     prevent_initial_call=True
 )
-def restore_ai_suggestion(pathname, suggestion_state, heuristic_suggestion):
+def restore_ai_suggestion(pathname, selected_call_id, suggestion_state, heuristic_suggestion):
     """Restore AI suggestion when returning to agent page"""
     # Only restore on agent page
     if pathname not in ('/', '/agent'):
         raise PreventUpdate
     
-    # Restore suggestion if available
+    # Check which input triggered
+    ctx = callback_context
+    triggered_id = None
+    if ctx.triggered:
+        triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    # Only restore when returning to page (pathname change) or when call is restored
+    if triggered_id not in ('url', 'store-selected-call-id'):
+        raise PreventUpdate
+    
+    # Need a selected call to restore suggestion
+    if not selected_call_id:
+        raise PreventUpdate
+    
+    # Restore suggestion if available and matches current call
     if suggestion_state and suggestion_state.get('suggestion_text'):
-        from app_dash.components.ai_suggestions import create_suggestion_card
-        suggestion_text = suggestion_state.get('suggestion_text')
-        response_time = suggestion_state.get('response_time')
-        is_heuristic = (heuristic_suggestion == suggestion_text)
-        card = create_suggestion_card(suggestion_text, is_heuristic=is_heuristic, response_time=response_time)
-        return card
+        # Check if suggestion is for current call
+        suggestion_call_id = suggestion_state.get('call_id')
+        if suggestion_call_id == selected_call_id:
+            from app_dash.components.ai_suggestions import create_suggestion_card
+            suggestion_text = suggestion_state.get('suggestion_text')
+            response_time = suggestion_state.get('response_time')
+            is_heuristic = (heuristic_suggestion == suggestion_text)
+            card = create_suggestion_card(suggestion_text, is_heuristic=is_heuristic, response_time=response_time)
+            print(f"✅ [RESTORE_AI] Restored AI suggestion for call {selected_call_id}")
+            return card
     
     # Try heuristic if available
     if heuristic_suggestion:
         from app_dash.components.ai_suggestions import create_suggestion_card
         card = create_suggestion_card(heuristic_suggestion, is_heuristic=True)
+        print(f"✅ [RESTORE_AI] Restored heuristic suggestion for call {selected_call_id}")
         return card
     
     raise PreventUpdate
@@ -1307,10 +1359,15 @@ def fetch_enhanced_suggestion(suggestion_state, n_intervals, enhanced_n_interval
     Output('member-info-content', 'children'),
     Input('store-selected-call-id', 'data'),
     Input('ai-tabs', 'active_tab'),
+    Input('url', 'pathname'),  # Add pathname to restore when returning
     prevent_initial_call=True
 )
-def update_member_info(selected_call_id, active_tab):
-    """Update member info when tab is active and call is selected"""
+def update_member_info(selected_call_id, active_tab, pathname):
+    """Update member info when tab is active and call is selected - restore when returning"""
+    # Only update on agent page
+    if pathname != '/' and pathname != '/agent':
+        raise PreventUpdate
+    
     if active_tab != 'member-info' or not selected_call_id:
         return html.Div()
     
@@ -1489,20 +1546,34 @@ def search_kb(radio_value, n_submit, search_button_clicks, manual_query, last_se
     Output('compliance-display', 'children'),
     Input('store-selected-call-id', 'data'),
     Input('interval-component', 'n_intervals'),
+    Input('url', 'pathname'),  # Add pathname to restore when returning
     State('store-last-rendered-call-id', 'data'),
     State('store-transcript-data', 'data'),
     prevent_initial_call=True
 )
-def update_compliance_alerts(selected_call_id, n_intervals, last_call_id, transcript_data):
-    """Update compliance alerts display - only refresh when call changes or transcript updates"""
+def update_compliance_alerts(selected_call_id, n_intervals, pathname, last_call_id, transcript_data):
+    """Update compliance alerts display - restore when returning to agent page"""
+    # Only update on agent page
+    if pathname != '/' and pathname != '/agent':
+        raise PreventUpdate
+    
     if not selected_call_id:
         raise PreventUpdate
     
-    # Only refresh if call changed or transcript was updated (transcript_data indicates new data)
+    # Check which input triggered
+    ctx = callback_context
+    triggered_id = None
+    if ctx.triggered:
+        triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    
+    # If returning to agent page, always refresh compliance alerts
+    is_returning = (triggered_id == 'url' and pathname in ('/', '/agent'))
+    
+    # Only refresh if call changed, transcript updated, or returning to page
     call_id_changed = (selected_call_id != last_call_id)
     
-    # If call hasn't changed and no transcript data (meaning transcript didn't update), prevent refresh
-    if not call_id_changed and not transcript_data:
+    # If call hasn't changed and no transcript data and not returning, prevent refresh
+    if not call_id_changed and not transcript_data and not is_returning:
         raise PreventUpdate
     
     try:

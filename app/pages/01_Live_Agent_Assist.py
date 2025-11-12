@@ -581,31 +581,67 @@ with col2:
     </div>
     """, unsafe_allow_html=True)
 
+# Initialize session state for persistent data
+if 'selected_call_id' not in st.session_state:
+    st.session_state['selected_call_id'] = None
+if 'transcript_data' not in st.session_state:
+    st.session_state['transcript_data'] = None
+if 'member_context' not in st.session_state:
+    st.session_state['member_context'] = None
+if 'escalation_data' not in st.session_state:
+    st.session_state['escalation_data'] = None
+if 'compliance_alerts' not in st.session_state:
+    st.session_state['compliance_alerts'] = None
+if 'call_metrics' not in st.session_state:
+    st.session_state['call_metrics'] = None
+
 # Sidebar - Active calls
 with st.sidebar:
     st.markdown("### 📞 Active Calls")
-    
+
     # Auto-refresh toggle (disabled - was causing new tabs to open)
     auto_refresh = st.checkbox("Auto-refresh (disabled)", value=False, disabled=True, help="Auto-refresh disabled to prevent new tabs. Refresh page manually.")
-    
+
     # Get active calls
     try:
         active_calls = get_active_calls()
-        
+
         if active_calls:
             call_options = {
-                f"{call[1]} ({call[0][-8:]})": call[0] 
+                f"{call[1]} ({call[0][-8:]})": call[0]
                 for call in active_calls
             }
-            
+
+            # Get previously selected call if it exists
+            if st.session_state['selected_call_id'] and st.session_state['selected_call_id'] in call_options.values():
+                # Find the display name for the selected call
+                selected_display = next((k for k, v in call_options.items() if v == st.session_state['selected_call_id']), list(call_options.keys())[0])
+                default_index = list(call_options.keys()).index(selected_display) if selected_display in call_options else 0
+            else:
+                default_index = 0
+
             selected_call_display = st.selectbox(
                 "Select Call to Monitor",
                 options=list(call_options.keys()),
+                index=default_index,
                 key="call_selector"
             )
-            
+
             selected_call_id = call_options[selected_call_display]
-            
+
+            # If call changed, clear cached data
+            if st.session_state['selected_call_id'] != selected_call_id:
+                st.session_state['selected_call_id'] = selected_call_id
+                st.session_state['transcript_data'] = None
+                st.session_state['member_context'] = None
+                st.session_state['escalation_data'] = None
+                st.session_state['compliance_alerts'] = None
+                st.session_state['call_metrics'] = None
+                # Clear suggestion cache for new call
+                if 'last_call_id' in st.session_state:
+                    st.session_state['last_call_id'] = None
+                    st.session_state['last_suggestion'] = None
+
             # Show call info
             selected_call_info = next(c for c in active_calls if c[0] == selected_call_id)
             st.markdown("---")
@@ -634,10 +670,17 @@ if selected_call_id:
     # COLUMN 1: Live Transcript
     with col1:
         st.header("📝 Live Transcript")
-        
+
         try:
-            transcript_df = get_live_transcript(selected_call_id)
-            
+            # Load transcript with spinner if not cached
+            if st.session_state['transcript_data'] is None or st.session_state.get('transcript_call_id') != selected_call_id:
+                with st.spinner("🔄 Loading transcript..."):
+                    transcript_df = get_live_transcript(selected_call_id)
+                    st.session_state['transcript_data'] = transcript_df
+                    st.session_state['transcript_call_id'] = selected_call_id
+            else:
+                transcript_df = st.session_state['transcript_data']
+
             if not transcript_df.empty:
                 # Display transcript
                 for idx, row in transcript_df.iterrows():
@@ -734,11 +777,18 @@ if selected_call_id:
         
         with tab2:
             st.subheader("Member 360 View")
-            
+
             try:
-                query = f"SELECT * FROM {FUNCTION_GET_CALL_CONTEXT}('{selected_call_id}')"
-                results = execute_sql(query, return_dataframe=False)
-                
+                # Load member context with spinner if not cached
+                if st.session_state['member_context'] is None or st.session_state.get('member_context_call_id') != selected_call_id:
+                    with st.spinner("🔄 Loading member info..."):
+                        query = f"SELECT * FROM {FUNCTION_GET_CALL_CONTEXT}('{selected_call_id}')"
+                        results = execute_sql(query, return_dataframe=False)
+                        st.session_state['member_context'] = results
+                        st.session_state['member_context_call_id'] = selected_call_id
+                else:
+                    results = st.session_state['member_context']
+
                 if results and len(results) > 0:
                     context = results[0]  # First row
                     st.metric("Member Name", context[0] if len(context) > 0 else "N/A")
@@ -805,10 +855,17 @@ if selected_call_id:
         st.markdown('<div class="section-header">', unsafe_allow_html=True)
         st.header("🚨 Escalation Status")
         st.markdown('</div>', unsafe_allow_html=True)
-        
+
         try:
-            escalation_data = get_escalation_triggers(selected_call_id)
-            
+            # Load escalation data with spinner if not cached
+            if st.session_state['escalation_data'] is None or st.session_state.get('escalation_call_id') != selected_call_id:
+                with st.spinner("🔄 Loading escalation status..."):
+                    escalation_data = get_escalation_triggers(selected_call_id)
+                    st.session_state['escalation_data'] = escalation_data
+                    st.session_state['escalation_call_id'] = selected_call_id
+            else:
+                escalation_data = st.session_state['escalation_data']
+
             if escalation_data and len(escalation_data) > 0:
                 escalation = escalation_data[0]
                 if isinstance(escalation, (list, tuple)) and len(escalation) >= 7:
@@ -854,10 +911,17 @@ if selected_call_id:
         st.markdown('<div class="section-header">', unsafe_allow_html=True)
         st.header("⚠️ Compliance Alerts")
         st.markdown('</div>', unsafe_allow_html=True)
-        
+
         try:
-            alerts = get_compliance_alerts(selected_call_id)
-            
+            # Load compliance alerts with spinner if not cached
+            if st.session_state['compliance_alerts'] is None or st.session_state.get('compliance_call_id') != selected_call_id:
+                with st.spinner("🔄 Loading compliance alerts..."):
+                    alerts = get_compliance_alerts(selected_call_id)
+                    st.session_state['compliance_alerts'] = alerts
+                    st.session_state['compliance_call_id'] = selected_call_id
+            else:
+                alerts = st.session_state['compliance_alerts']
+
             if alerts:
                 for alert in alerts:
                     if isinstance(alert, (list, tuple)) and len(alert) >= 3:
@@ -893,9 +957,16 @@ if selected_call_id:
         st.markdown('<div class="section-header">', unsafe_allow_html=True)
         st.markdown("### 📊 Call Metrics")
         st.markdown('</div>', unsafe_allow_html=True)
-        
+
         try:
-            transcript_df = get_live_transcript(selected_call_id)
+            # Use cached transcript data for metrics
+            if st.session_state['transcript_data'] is not None:
+                transcript_df = st.session_state['transcript_data']
+            else:
+                with st.spinner("🔄 Loading metrics..."):
+                    transcript_df = get_live_transcript(selected_call_id)
+                    st.session_state['transcript_data'] = transcript_df
+
             if not transcript_df.empty:
                 sentiment_counts = transcript_df['sentiment'].value_counts()
                 st.metric("Positive", sentiment_counts.get('positive', 0))
