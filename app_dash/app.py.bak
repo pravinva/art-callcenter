@@ -999,6 +999,46 @@ def update_transcript(selected_call_id, n_intervals, last_call_id, previous_tran
     if ctx.triggered:
         triggered_id = ctx.triggered[0]['prop_id'].split('.')[0]
 
+    # Removed the pathname-based restoration logic since pathname is no longer an Input
+        
+        # If we have a stored call_id but selected_call_id is None, wait for restore callback
+        # The restore_selected_call callback will set selected_call_id, which will trigger this callback again
+        if not selected_call_id and last_call_id:
+            print(f"⏳ [TRANSCRIPT] Waiting for call to be restored...")
+            raise PreventUpdate
+        
+        # If we have stored transcript data and the call matches, restore it
+        if previous_transcript_data and selected_call_id and selected_call_id == last_call_id:
+            # Restore from stored data
+            # TranscriptContainer is imported at top level
+            import pandas as pd
+            try:
+                transcript_df = pd.DataFrame(previous_transcript_data)
+                display = TranscriptContainer(transcript_df) if transcript_df is not None and not transcript_df.empty else html.Div("No transcript available")
+                print(f"✅ [TRANSCRIPT] Restored transcript from store for call {selected_call_id}")
+                return display, previous_transcript_data, last_call_id
+            except Exception as e:
+                # If restore fails, continue to fetch fresh data below
+                print(f"⚠️ [TRANSCRIPT] Failed to restore transcript from store: {e}")
+                pass
+        
+        # If we have a selected call but no stored data (or restore failed), fetch fresh data
+        if selected_call_id:
+            try:
+                print(f"📥 [TRANSCRIPT] Fetching fresh transcript for call {selected_call_id}")
+                # TranscriptContainer is imported at top level
+                transcript_df = get_live_transcript(selected_call_id)
+                transcript_data = transcript_df.to_dict('records') if transcript_df is not None and not transcript_df.empty else []
+                display = TranscriptContainer(transcript_df) if transcript_df is not None and not transcript_df.empty else html.Div("No transcript available")
+                print(f"✅ [TRANSCRIPT] Loaded transcript for call {selected_call_id}")
+                return display, transcript_data, selected_call_id
+            except Exception as e:
+                print(f"❌ [TRANSCRIPT] Error loading transcript: {e}")
+                return ErrorAlert(f"Error loading transcript: {e}"), None, selected_call_id
+        
+        # If no call selected and no last_call_id, show placeholder
+        print(f"ℹ️ [TRANSCRIPT] No call selected, showing placeholder")
+        return html.Div("Select a call to view transcript"), None, None
     
     # Normal flow: Check if call ID changed (including initial load when last_call_id is None)
     call_id_changed = (selected_call_id != last_call_id) or (last_call_id is None)
