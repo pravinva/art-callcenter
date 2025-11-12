@@ -91,6 +91,59 @@ The unified app includes three pages:
 3. **Performance**: Caching and lazy loading reduce SQL queries
 4. **Routing**: Multi-page navigation without full page reloads
 5. **Component Isolation**: Tabs and pages don't interfere with each other
+6. **State Persistence**: All component state (transcript, AI suggestions, KB results, compliance, member info) persists when navigating between tabs
+
+## State Persistence Architecture
+
+### How It Works
+
+The application preserves all state when navigating between pages (Live Agent → Analytics/Supervisor → back to Live Agent):
+
+1. **Persistent Layout**: All page layouts remain in DOM, hidden/shown with CSS `display` property
+2. **dcc.Store Components**: State stored in client-side storage for:
+   - Selected call ID (`store-selected-call-id`)
+   - Transcript data (`store-transcript-data`)
+   - Last rendered call (`store-last-rendered-call-id`)
+   - AI suggestions (`store-suggestion-state`)
+   - Compliance alerts (`store-compliance-alerts`)
+   - Member context (`store-member-context`)
+   - KB search results (`store-kb-results`)
+
+3. **Pathname-Aware Callbacks**: Key callbacks listen to `Input('url', 'pathname')` to restore state when returning to agent page:
+   - `update_transcript` - Restores cached transcript immediately on return
+   - `update_compliance_alerts` - Restores compliance status
+   - `update_ai_suggestions` - Restores AI suggestions
+   - Other callbacks preserve state similarly
+
+### Critical Implementation Details
+
+**Transcript Persistence (app.py:977-1028)**:
+```python
+@app.callback(
+    Output('transcript-display', 'children'),
+    Input('store-selected-call-id', 'data'),
+    Input('interval-component', 'n_intervals'),
+    Input('url', 'pathname'),  # Critical: fires on navigation
+    State('store-transcript-data', 'data'),
+)
+def update_transcript(selected_call_id, n_intervals, pathname, previous_transcript_data):
+    # Only update on agent page
+    if pathname != '/' and pathname != '/agent':
+        raise PreventUpdate
+
+    # When returning to page, immediately restore cached data
+    if triggered_id == 'url' and previous_transcript_data:
+        return cached_display, previous_transcript_data, last_call_id
+```
+
+**State Only Clears When**:
+- User selects a new call from the dropdown
+- User explicitly refreshes the page
+
+**State DOES NOT Clear When**:
+- Navigating to Analytics or Supervisor tabs
+- Returning to Live Agent tab
+- Interval callbacks fire (they preserve existing state)
 
 ## Testing
 
